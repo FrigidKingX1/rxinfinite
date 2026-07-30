@@ -10,9 +10,12 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import threading
+import urllib.request
+import urllib.error
 import webbrowser
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -781,15 +784,56 @@ def run_gui():
         save_btn.configure(state="disabled")
 
         def verify():
-            from dr2server.api_client import RXInfiniteClient
-            client = RXInfiniteClient(base_url=config.get("api_url", API_URL), api_token=t)
-            username = client.test_token()
-            if username:
-                root.after(0, lambda u=username: token_status_label.configure(
-                    text=f"\u2713 Token working \u2014 linked to {u}", fg=GREEN))
-            else:
+            api_url = config.get("api_url", API_URL).rstrip("/")
+            log(f"Testing token against {api_url}/api/game/token-test")
+            log(f"Token length: {len(t)} chars, starts with: {t[:10]}...")
+            try:
+                req = urllib.request.Request(
+                    f"{api_url}/api/game/token-test",
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {t}"},
+                )
+                ctx = ssl.create_default_context()
+                resp = urllib.request.urlopen(req, timeout=15, context=ctx)
+                body = json.loads(resp.read().decode())
+                log(f"HTTP {resp.status} — {body}")
+                username = body.get("username")
+                if username:
+                    root.after(0, lambda u=username: token_status_label.configure(
+                        text=f"\u2713 Token working \u2014 linked to {u}", fg=GREEN))
+                    log(f"Token valid for user: {username}")
+                else:
+                    root.after(0, lambda: token_status_label.configure(
+                        text="\u2717 Token rejected by server", fg=RED))
+                    log("Server returned ok=false — token not recognized")
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode()
+                log(f"HTTP {exc.code} {exc.reason} — {body}")
+                if exc.code == 401:
+                    root.after(0, lambda: token_status_label.configure(
+                        text="\u2717 Token rejected (401)", fg=RED))
+                    log("The server does not recognize this token. Did you copy the full token?")
+                    log("Go to rxinfinite.net/dashboard and copy the entire df_... string.")
+                else:
+                    root.after(0, lambda c=exc.code: token_status_label.configure(
+                        text=f"\u2717 Server error (HTTP {c})", fg=RED))
+            except urllib.error.URLError as exc:
+                log(f"Network error: {exc.reason}")
+                if isinstance(exc.reason, ssl.SSLCertVerificationError):
+                    root.after(0, lambda: token_status_label.configure(
+                        text="\u2717 SSL certificate error", fg=RED))
+                    log(f"SSL details: {exc.reason}")
+                elif isinstance(exc.reason, ConnectionRefusedError):
+                    root.after(0, lambda: token_status_label.configure(
+                        text="\u2717 Connection refused", fg=RED))
+                    log("Is the server running? Check https://rxinfinite-production.up.railway.app")
+                else:
+                    root.after(0, lambda: token_status_label.configure(
+                        text="\u2717 Server unreachable", fg=RED))
+                    log("Check your internet connection or the API URL in the Logs tab.")
+            except Exception as exc:
+                log(f"Unexpected error: {exc}")
                 root.after(0, lambda: token_status_label.configure(
-                    text="\u2717 Token invalid or server unreachable", fg=RED))
+                    text="\u2717 Error — see Logs tab", fg=RED))
             root.after(0, lambda: save_btn.configure(state="normal"))
 
         threading.Thread(target=verify, daemon=True).start()
