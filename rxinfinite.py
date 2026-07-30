@@ -796,6 +796,8 @@ def run_gui():
 
         def verify():
             api_url = config.get("api_url", API_URL).rstrip("/")
+            if api_url and not api_url.startswith("http://") and not api_url.startswith("https://"):
+                api_url = "https://" + api_url
             log(f"Testing token against {api_url}/api/game/token-test")
             log(f"Token length: {len(t)} chars, starts with: {t[:10]}...")
             try:
@@ -1313,8 +1315,14 @@ def run_gui():
              font=(UI_FONT, 7), fg=MUTED, bg=BG_CARD, wraplength=380,
              anchor="w", justify="left").pack(fill="x", padx=12, pady=(0, 4))
 
+    def _normalize_url(u: str) -> str:
+        u = u.strip().rstrip("/")
+        if u and not u.startswith("http://") and not u.startswith("https://"):
+            u = "https://" + u
+        return u
+
     def _save_api_url():
-        val = api_url_var.get().strip().rstrip("/")
+        val = _normalize_url(api_url_var.get())
         if val:
             config["api_url"] = val
             save_config(config)

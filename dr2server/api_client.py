@@ -134,7 +134,10 @@ class RXInfiniteClient:
     """Thin HTTP client for the rxinfinite.net game API."""
 
     def __init__(self, base_url: str = "https://rxinfinite.up.railway.app", api_token: Optional[str] = None) -> None:
-        self.base_url = base_url.rstrip("/")
+        base_url = base_url.strip().rstrip("/")
+        if base_url and not base_url.startswith("http://") and not base_url.startswith("https://"):
+            base_url = "https://" + base_url
+        self.base_url = base_url
         self.api_token = api_token
 
     # ------------------------------------------------------------------

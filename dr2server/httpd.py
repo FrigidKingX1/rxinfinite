@@ -87,6 +87,8 @@ class App:
         self.account_store = AccountStore(data_root / "accounts")
         api_client: Optional[RXInfiniteClient] = None
         if api_url:
+            if not api_url.startswith("http://") and not api_url.startswith("https://"):
+                api_url = "https://" + api_url
             api_client = RXInfiniteClient(base_url=api_url, api_token=api_token)
             print(f"[API] Connected to rxinfinite API at {api_url}")
         self.dispatcher = RpcDispatcher(self.account_store, api_client=api_client)
