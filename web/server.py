@@ -827,6 +827,16 @@ RX_CAR_CLASSES: list[str] = [
     'RX2', 'Group B Rallycross', 'Cross Kart',
 ]
 
+# Tyre compound override options for events (empty = let game decide)
+TYRE_COMPOUNDS: list[tuple[str, str]] = [
+    ('', 'Default (let game decide)'),
+    ('0', 'Dry Tarmac'),
+    ('1', 'Wet Tarmac'),
+    ('2', 'Gravel'),
+    ('3', 'Snow'),
+    ('4', 'Ice'),
+]
+
 CONDITIONS = ['Clear', 'Overcast', 'Light Rain', 'Heavy Rain', 'Dusk', 'Night']
 
 COUNTRIES: dict[str, str] = {
@@ -1025,6 +1035,7 @@ def normalize_championship(raw: dict[str, Any]) -> dict[str, Any]:
     for ev in events:
         ev = dict(ev)
         ev.setdefault('surface', 'Gravel')
+        ev.setdefault('tyre_compound', '')
         ev.setdefault('duration', {'days': 0, 'hours': 0, 'mins': 0})
         stages: list[dict[str, Any]] = []
         for s in ev.get('stages', []):
@@ -1100,6 +1111,7 @@ def _blank_event(num_stages: int = 1, surface: str = '') -> dict[str, Any]:
         'location': '',
         'car_class': '',
         'surface': surface,
+        'tyre_compound': '',
         'duration': {'days': 2, 'hours': 0, 'mins': 0},
         'stages': [_blank_stage(i) for i in range(max(1, num_stages))],
     }
@@ -1238,6 +1250,7 @@ def parse_championship_form(form: Any) -> dict[str, Any]:
             'location': (f.get('location') or '').strip(),
             'car_class': (f.get('car_class') or '').strip(),
             'surface': (f.get('surface') or '').strip(),
+            'tyre_compound': (f.get('tyre_compound') or '').strip(),
             'duration': {
                 'days': _to_int_or_zero(f.get('duration_days')),
                 'hours': _to_int_or_zero(f.get('duration_hours')),
@@ -2809,6 +2822,7 @@ def _championship_edit_context(club: dict[str, Any], draft: dict[str, Any]) -> d
         stage_routes=STAGE_ROUTES, stage_caps=STAGE_CAPS,
         blank_stage=_blank_stage(),
         max_events=MAX_CHAMP_EVENTS, max_stages=MAX_STAGES_PER_EVENT,
+        tyre_compounds=TYRE_COMPOUNDS,
     )
 
 
@@ -2924,11 +2938,13 @@ def _duration_label(d: dict[str, Any]) -> str:
 
 def _championship_summary(draft: dict[str, Any]) -> dict[str, Any]:
     """Per-event summary rows + computed end time for the preview screen."""
+    compound_label = {v: l for v, l in TYRE_COMPOUNDS}
     rows = [
         {
             'location': ev.get('location') or '(none)',
             'stages': len(ev.get('stages', [])),
             'duration_label': _duration_label(ev.get('duration', {})),
+            'tyre_compound': compound_label.get(ev.get('tyre_compound', ''), ''),
         }
         for ev in draft.get('events', [])
     ]
@@ -2949,6 +2965,7 @@ def _championship_view(event: dict[str, Any]) -> list[dict[str, Any]]:
             'location': ev.get('location', ''),
             'car_class': ev.get('car_class', ''),
             'surface': ev.get('surface', ''),
+            'tyre_compound': ev.get('tyre_compound', ''),
             'duration_label': _duration_label(ev.get('duration', {})),
             'stages': stages,
             'offset': offset,

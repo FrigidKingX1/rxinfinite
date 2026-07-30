@@ -18,7 +18,7 @@
                 </div>
                 <h1 class="page-title">{{ rally.location or '(location TBD)' }}</h1>
                 <p class="page-subtitle text-muted">
-                    {{ rally.car_class }} &middot; {{ rally.surface }} &middot; {{ rally.duration_label }}
+                    {{ rally.car_class }} &middot; {{ rally.surface }} &middot; {{ rally.duration_label }}{% if rally.tyre_compound %} &middot; {{ rally.tyre_compound }} tyres{% endif %}
                 </p>
             </div>
             <div class="page-header-right">

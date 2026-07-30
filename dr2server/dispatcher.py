@@ -1939,15 +1939,22 @@ class RpcDispatcher:
         # Flat championship-wide stage ordinal; == stage_index for event 0.
         gidx = req.stage_index + (self._stage_offset(event_id, sub_index) if event_id else 0)
 
-        if event_id:
-            self._current_event_id = event_id
-        if req.vehicle_id:
-            self._current_vehicle_id = req.vehicle_id
+        # Look up the event config for tyre_compound override
+        tyre_override: Optional[str] = None
         if event_id and self._clubs_snapshot:
             for evt in self._clubs_snapshot.get("events", []) or []:
                 if evt.get("id") == event_id:
                     self._current_club_id = evt.get("club_id") or self._current_club_id
+                    sub_events = evt.get("events") or []
+                    if 0 <= sub_index < len(sub_events):
+                        tyre_override = sub_events[sub_index].get("tyre_compound") or None
                     break
+        if tyre_override is not None:
+            try:
+                req.tyre_compound = int(tyre_override)
+                print(f"[STAGE] Tyre compound overridden to {req.tyre_compound}")
+            except (ValueError, TypeError):
+                pass
         if self.verbose_logging:
             print(f"[STREAM] dispatcher: stage_begin set "
                   f"event_id={self._current_event_id!r} "

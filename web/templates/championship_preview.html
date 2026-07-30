@@ -48,12 +48,13 @@
 
                 <div class="lb-table-wrap">
                     <table class="lb-table">
-                        <thead><tr><th>Location</th><th>Duration</th></tr></thead>
+                        <thead><tr><th>Location</th><th>Duration</th><th>Tyres</th></tr></thead>
                         <tbody>
                             {% for row in summary_rows %}
                             <tr>
                                 <td>{{ loop.index }} - {{ row.location }}</td>
                                 <td>{{ row.stages }} Stages - {{ row.duration_label }}</td>
+                                <td>{% if row.tyre_compound %}{{ row.tyre_compound }}{% else %}<span class="text-muted">Default</span>{% endif %}</td>
                             </tr>
                             {% endfor %}
                         </tbody>

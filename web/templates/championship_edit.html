@@ -84,6 +84,15 @@
                 </select>
             </div>
             <div class="form-group">
+                <label class="form-label">Tyre Compound</label>
+                <select name="events[{{ ei }}][tyre_compound]" class="form-input form-select">
+                    {% for val, label in tyre_compounds %}
+                    <option value="{{ val }}" {% if event.tyre_compound == val %}selected{% endif %}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+                <span class="form-hint">Override the tyre compound (for RX cars on rally surfaces). Only takes effect from stage 2 onward.</span>
+            </div>
+            <div class="form-group">
                 <label class="form-label">Event Duration</label>
                 <div class="champ-duration">
                     <select name="events[{{ ei }}][duration_days]" class="form-input form-select" aria-label="Days">
