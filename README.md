@@ -19,11 +19,17 @@ A fork of [DirtForever](https://github.com/winrid/dirtforever) focused on **rall
 
 **Option A: Railway (free, easiest)**
 
-[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new)
+[![Deploy on Railway](https://railway.app/button.svg)](https://railway.app/new/template?template=https://github.com/FrigidKingX1/rxinfinite)
 
-1. Push this repo to your GitHub
-2. Connect Railway to the repo
-3. Set environment variables (see below)
+Click the button above, then in Railway:
+
+1. Under **Root Directory** enter: `web`
+2. Railway will auto-detect the rest. Hit **Deploy**.
+3. Once it's green, copy your app URL (e.g. `rxinfinite-xxxx.up.railway.app`)
+4. Go to **Variables** tab and add:
+   - `SECRET_KEY` — click **Generate**
+   - `SITE_URL` — paste your app URL
+   - `SESSION_COOKIE_SECURE` = `true`
 
 **Option B: VPS**
 
