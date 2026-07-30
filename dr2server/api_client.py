@@ -133,7 +133,7 @@ def _default_tracks_for_location(location_id: int) -> List[int]:
 class RXInfiniteClient:
     """Thin HTTP client for the rxinfinite.net game API."""
 
-    def __init__(self, base_url: str = "https://rxinfinite-production.up.railway.app", api_token: Optional[str] = None) -> None:
+    def __init__(self, base_url: str = "https://rxinfinite.up.railway.app", api_token: Optional[str] = None) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_token = api_token
 

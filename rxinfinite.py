@@ -189,8 +189,8 @@ REDIRECT_DOMAINS = [
 HOSTS_BEGIN = "# BEGIN RXINFINITE"
 HOSTS_END = "# END RXINFINITE"
 SERVER_IP = "127.0.0.1"
-DASHBOARD_URL = "https://rxinfinite-production.up.railway.app/dashboard"
-API_URL = "https://rxinfinite-production.up.railway.app"
+DASHBOARD_URL = "https://rxinfinite.up.railway.app/dashboard"
+API_URL = "https://rxinfinite.up.railway.app"
 
 
 # ---------------------------------------------------------------------------
@@ -823,7 +823,7 @@ def run_gui():
                     root.after(0, lambda: token_status_label.configure(
                         text="\u2717 Token rejected (401)", fg=RED))
                     log("The server does not recognize this token. Did you copy the full token?")
-                    log("Go to rxinfinite.net/dashboard and copy the entire df_... string.")
+                    log("Go to the RXInfinite dashboard and copy the entire df_... string.")
                 else:
                     root.after(0, lambda c=exc.code: token_status_label.configure(
                         text=f"\u2717 Server error (HTTP {c})", fg=RED))
@@ -836,7 +836,7 @@ def run_gui():
                 elif isinstance(exc.reason, ConnectionRefusedError):
                     root.after(0, lambda: token_status_label.configure(
                         text="\u2717 Connection refused", fg=RED))
-                    log("Is the server running? Check https://rxinfinite-production.up.railway.app")
+                    log("Is the server running? Check https://rxinfinite.up.railway.app")
                 else:
                     root.after(0, lambda: token_status_label.configure(
                         text="\u2717 Server unreachable", fg=RED))
@@ -871,7 +871,7 @@ def run_gui():
     if config.get("game_token"):
         token_status_label.configure(text="\u2713 Token configured", fg=GREEN)
     else:
-        token_status_label.configure(text="Get token at rxinfinite.net/dashboard", fg=MUTED)
+        token_status_label.configure(text="Get token from dashboard", fg=MUTED)
 
     # --- Status (web card style) ---
     status_frame = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
@@ -1545,7 +1545,7 @@ def run_gui():
 
                 # Check for token
                 if not config.get("game_token"):
-                    root.after(0, lambda: log("No game token. Get one at rxinfinite.net/dashboard"))
+                    root.after(0, lambda: log("No game token. Get one from the dashboard."))
                     webbrowser.open(DASHBOARD_URL)
                     # We'll still start the server - it works without token (local mode)
 
