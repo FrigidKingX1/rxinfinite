@@ -663,10 +663,10 @@ class RpcDispatcher:
             return None
         try:
             is_rallycross = Location(location_id).discipline == "rallycross"
-            discipline_id = 2 if is_rallycross else 1
         except (ValueError, AttributeError):
             is_rallycross = False
-            discipline_id = 1
+        # Clubs UI only supports rally discipline; for RX circuits on rally
+        # stages we keep discipline_id=1 and mark the stages as circuit format.
         stages = self._stages_for_subevent(ev, chal_id, ei, track_ids)
         if is_rallycross:
             for s in stages:
@@ -675,7 +675,7 @@ class RpcDispatcher:
         return Event(
             event_id=chal_id + ei * 10_000_000,
             location_id=location_id,
-            discipline_id=discipline_id,
+            discipline_id=1,
             stages=stages,
             leaderboard_id=chal_id + 900000 + ei * 10_000_000,
         )
