@@ -1,4 +1,4 @@
-/* ─── RXInfinite ─── Rallycross Service Park at Night ─── */
+/* ─── RXInfinite ─── Black & Ice Blue ─── */
 
 :root {
     --bg-deep:      #08080C;
@@ -9,10 +9,10 @@
     --border:       #2A2A36;
     --border-light: #1E1E2A;
 
-    --accent:       #E8720C;
-    --accent-bright:#FF8C2E;
-    --accent-dim:   rgba(232, 114, 12, 0.12);
-    --accent-glow:  rgba(232, 114, 12, 0.25);
+    --accent:       #4FC3F7;
+    --accent-bright:#81D4FA;
+    --accent-dim:   rgba(79, 195, 247, 0.12);
+    --accent-glow:  rgba(79, 195, 247, 0.25);
 
     --text:         #E8E4DF;
     --text-muted:   #B0AFB8;
@@ -56,10 +56,10 @@ body {
     line-height: 1.6;
     min-height: 100vh;
     background-image:
-        repeating-radial-gradient(circle at 20% 30%, transparent 0px, transparent 55px, rgba(232,114,12,0.018) 55px, rgba(232,114,12,0.018) 56px, transparent 56px, transparent 110px),
-        repeating-radial-gradient(circle at 75% 65%, transparent 0px, transparent 45px, rgba(232,114,12,0.012) 45px, rgba(232,114,12,0.012) 46px, transparent 46px, transparent 90px),
-        repeating-radial-gradient(circle at 50% 10%, transparent 0px, transparent 70px, rgba(232,114,12,0.008) 70px, rgba(232,114,12,0.008) 71px, transparent 71px, transparent 140px),
-        radial-gradient(ellipse at 50% 0%, rgba(232,114,12,0.04) 0%, transparent 60%);
+        repeating-radial-gradient(circle at 20% 30%, transparent 0px, transparent 55px, rgba(79,195,247,0.018) 55px, rgba(79,195,247,0.018) 56px, transparent 56px, transparent 110px),
+        repeating-radial-gradient(circle at 75% 65%, transparent 0px, transparent 45px, rgba(79,195,247,0.012) 45px, rgba(79,195,247,0.012) 46px, transparent 46px, transparent 90px),
+        repeating-radial-gradient(circle at 50% 10%, transparent 0px, transparent 70px, rgba(79,195,247,0.008) 70px, rgba(79,195,247,0.008) 71px, transparent 71px, transparent 140px),
+        radial-gradient(ellipse at 50% 0%, rgba(79,195,247,0.04) 0%, transparent 60%);
     background-attachment: fixed;
 }
 
@@ -253,7 +253,7 @@ button { cursor: pointer; font-family: inherit; }
     background: var(--accent-bright);
     border-color: var(--accent-bright);
     color: var(--bg-deep);
-    box-shadow: 0 0 20px var(--accent-glow), 0 0 40px rgba(232,114,12,0.1);
+    box-shadow: 0 0 20px var(--accent-glow), 0 0 40px rgba(79,195,247,0.1);
 }
 
 .btn-ghost {
@@ -493,9 +493,9 @@ button { cursor: pointer; font-family: inherit; }
     position: absolute;
     inset: 0;
     background-image:
-        repeating-radial-gradient(circle at 25% 35%, transparent 0, transparent 80px, rgba(232,114,12,0.035) 80px, rgba(232,114,12,0.035) 81px, transparent 81px, transparent 160px),
-        repeating-radial-gradient(circle at 65% 55%, transparent 0, transparent 60px, rgba(232,114,12,0.025) 60px, rgba(232,114,12,0.025) 61px, transparent 61px, transparent 120px),
-        repeating-radial-gradient(circle at 80% 20%, transparent 0, transparent 100px, rgba(232,114,12,0.02) 100px, rgba(232,114,12,0.02) 101px, transparent 101px, transparent 200px);
+        repeating-radial-gradient(circle at 25% 35%, transparent 0, transparent 80px, rgba(79,195,247,0.035) 80px, rgba(79,195,247,0.035) 81px, transparent 81px, transparent 160px),
+        repeating-radial-gradient(circle at 65% 55%, transparent 0, transparent 60px, rgba(79,195,247,0.025) 60px, rgba(79,195,247,0.025) 61px, transparent 61px, transparent 120px),
+        repeating-radial-gradient(circle at 80% 20%, transparent 0, transparent 100px, rgba(79,195,247,0.02) 100px, rgba(79,195,247,0.02) 101px, transparent 101px, transparent 200px);
     opacity: 1;
 }
 
@@ -591,7 +591,7 @@ button { cursor: pointer; font-family: inherit; }
     color: var(--accent);
     letter-spacing: 8px;
     animation: heroSlideLeft .7s .5s ease-out forwards;
-    text-shadow: 0 0 60px rgba(232,114,12,0.3), 0 0 120px rgba(232,114,12,0.1);
+    text-shadow: 0 0 60px rgba(79,195,247,0.3), 0 0 120px rgba(79,195,247,0.1);
 }
 
 .hero-subtitle {
@@ -662,7 +662,7 @@ button { cursor: pointer; font-family: inherit; }
     padding: 2.5rem 0 1.5rem;
     border-bottom: 1px solid var(--border-light);
     margin-bottom: 2rem;
-    background: linear-gradient(180deg, rgba(232,114,12,0.03), transparent);
+    background: linear-gradient(180deg, rgba(79,195,247,0.03), transparent);
 }
 
 .page-header-content {
@@ -934,7 +934,7 @@ button { cursor: pointer; font-family: inherit; }
 
 .badge-daily    { background: rgba(34,197,94,0.15); color: var(--green); }
 .badge-weekly   { background: rgba(168,85,247,0.15); color: var(--purple); }
-.badge-monthly  { background: rgba(232,114,12,0.15); color: var(--accent-bright); }
+.badge-monthly  { background: rgba(79,195,247,0.15); color: var(--accent-bright); }
 .badge-official { background: rgba(251,191,36,0.18); color: #fbbf24; }
 
 .badge-xs { font-size: .6rem; padding: .15rem .4rem; }
@@ -1208,11 +1208,11 @@ th.lb-stage-time, td.lb-stage-time { width: 95px; text-align: right; font-size: 
 }
 .lb-mode.active {
     background:
-        linear-gradient(135deg, rgba(232,114,12,0.18) 0%, rgba(232,114,12,0.04) 70%),
+        linear-gradient(135deg, rgba(79,195,247,0.18) 0%, rgba(79,195,247,0.04) 70%),
         var(--bg-card);
     border-color: var(--accent);
     color: var(--text);
-    box-shadow: 0 10px 32px rgba(232,114,12,0.10);
+    box-shadow: 0 10px 32px rgba(79,195,247,0.10);
 }
 
 .lb-mode-num {

@@ -1591,10 +1591,16 @@ def register_post() -> Response:
         return redirect(url_for('register'))
 
     user = create_user(username, email, password, country=country)
-    send_verification_email(user)
-    session['username'] = username
-    flash('Account created! Check your email to verify your address.', 'success')
-    return redirect(url_for('verify_prompt'))
+    if SMTP_HOST:
+        send_verification_email(user)
+        flash('Account created! Check your email to verify your address.', 'success')
+        return redirect(url_for('verify_prompt'))
+    else:
+        user['email_verified'] = True
+        user['verify_token'] = None
+        save_user(user)
+        flash('Account created! (SMTP not configured — email auto-verified)', 'success')
+        return redirect(url_for('dashboard'))
 
 
 @app.route('/verify/resend', methods=['POST'])
