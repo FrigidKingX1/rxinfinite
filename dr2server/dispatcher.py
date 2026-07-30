@@ -461,8 +461,6 @@ class RpcDispatcher:
             self._club_id_map[club_int_id] = club_str_id
 
             club_events = events_by_club.get(club_str_id, [])
-            if not club_events:
-                continue  # skip clubs with no active events
 
             # A club whose single championship has >1 sub-event follows the
             # verified RaceNet multi-event model: serve one active event at a
@@ -484,9 +482,10 @@ class RpcDispatcher:
                         if prog_entry is not None:
                             multi_progress.append(prog_entry)
                         multi_event_ids.add(club_events[0].get("id", ""))
+                    club_events = []  # already handled above
                     continue
 
-            # Emit the Club entry ONCE per club (outside the event loop)
+            # Emit the Club entry (shows in the game's club list even with 0 events)
             clubs_egonet.append(
                 Club(
                     id=club_int_id,
@@ -564,7 +563,7 @@ class RpcDispatcher:
                 )
             )
 
-        if not challenges_egonet:
+        if not clubs_egonet:
             return None
 
         progress_egonet = multi_progress + self._build_user_progress(
