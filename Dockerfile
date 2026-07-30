@@ -10,4 +10,7 @@ COPY web/ web/
 
 WORKDIR /app/web
 
-CMD gunicorn server:app --bind 0.0.0.0:$PORT --workers 2
+COPY entrypoint.sh .
+RUN chmod +x entrypoint.sh
+
+CMD ./entrypoint.sh
