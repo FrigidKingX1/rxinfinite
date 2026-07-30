@@ -186,8 +186,8 @@ REDIRECT_DOMAINS = [
 HOSTS_BEGIN = "# BEGIN RXINFINITE"
 HOSTS_END = "# END RXINFINITE"
 SERVER_IP = "127.0.0.1"
-DASHBOARD_URL = "https://rxinfinite.net/dashboard"
-API_URL = "https://rxinfinite.net"
+DASHBOARD_URL = "https://rxinfinite-production.up.railway.app/dashboard"
+API_URL = "https://rxinfinite-production.up.railway.app"
 
 
 # ---------------------------------------------------------------------------
