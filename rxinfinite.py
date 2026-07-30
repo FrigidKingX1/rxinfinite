@@ -1295,6 +1295,39 @@ def run_gui():
 
     verbose_logging_var.trace_add("write", _apply_verbose_logging)
 
+    # --- API URL setting ---
+    api_url_var = tk.StringVar(value=config.get("api_url", API_URL))
+    api_card = tk.Frame(advanced_tab, bg=BG_CARD,
+                        highlightbackground=BORDER, highlightthickness=1)
+    api_card.pack(fill="x", padx=20, pady=5)
+    tk.Label(api_card, text="API URL", font=(UI_FONT, 8, "bold"),
+             fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 2))
+    api_entry = tk.Entry(
+        api_card, textvariable=api_url_var, font=(MONO_FONT, 9),
+        bg=BG, fg=TEXT, insertbackground=TEXT, relief="flat",
+        highlightbackground=BORDER, highlightthickness=1,
+    )
+    api_entry.pack(fill="x", padx=12, pady=(0, 4), ipady=3)
+    tk.Label(api_card,
+             text="The RXInfinite web API base URL. Must point to your backend instance.",
+             font=(UI_FONT, 7), fg=MUTED, bg=BG_CARD, wraplength=380,
+             anchor="w", justify="left").pack(fill="x", padx=12, pady=(0, 4))
+
+    def _save_api_url():
+        val = api_url_var.get().strip().rstrip("/")
+        if val:
+            config["api_url"] = val
+            save_config(config)
+            log(f"API URL saved: {val}")
+
+    api_save_btn = tk.Button(
+        api_card, text="Save API URL", font=(UI_FONT, 8, "bold"),
+        bg=ACCENT, fg="#111", activebackground=ACCENT_BRIGHT, activeforeground="#111",
+        relief="flat", cursor="hand2", padx=10, pady=2,
+        command=_save_api_url,
+    )
+    api_save_btn.pack(anchor="w", padx=12, pady=(4, 8))
+
     # --- Server control ---
     def set_status(running: bool, detail: str = ""):
         if running:
