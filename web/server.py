@@ -3308,7 +3308,7 @@ def account_post() -> Response:
 
 @app.route('/install')
 def install() -> str:
-    return render_template('install.html')
+    return render_template('install.html', version='1.0.0')
 
 
 @app.route('/about')
