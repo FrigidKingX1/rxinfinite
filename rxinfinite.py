@@ -634,8 +634,9 @@ def run_gui():
     BG = "#08080C"
     BG_CARD = "#14141C"
     BG_ELEVATED = "#1A1A24"
-    ACCENT = "#E8720C"
-    ACCENT_BRIGHT = "#FF8C2E"
+    ACCENT = "#4FC3F7"
+    ACCENT_BRIGHT = "#81D4FA"
+    ACCENT_DIM = "#1A3A4A"
     GREEN = "#22C55E"
     RED = "#EF4444"
     TEXT = "#E8E4DF"
@@ -660,7 +661,7 @@ def run_gui():
             pass
 
     # Center on screen
-    w, h = 440, 560
+    w, h = 480, 580
     x = (root.winfo_screenwidth() - w) // 2
     y = (root.winfo_screenheight() - h) // 2
     root.geometry(f"{w}x{h}+{x}+{y}")
@@ -696,7 +697,7 @@ def run_gui():
         import urllib.request
         try:
             req = urllib.request.Request(
-                "https://api.github.com/repos/winrid/rxinfinite/releases/latest",
+                "https://api.github.com/repos/FrigidKingX1/rxinfinite/releases/latest",
                 headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "RXInfinite"},
             )
             with urllib.request.urlopen(req, timeout=5) as resp:
@@ -737,23 +738,33 @@ def run_gui():
     notebook.add(streaming_tab, text="Streaming")
     notebook.add(advanced_tab, text="Logs")
 
-    # --- Header ---
+    # --- Header (web-style) ---
     header = tk.Frame(main_tab, bg=BG)
-    header.pack(fill="x", padx=20, pady=(20, 5))
-    tk.Label(header, text="RXINFINITE", font=(UI_FONT, 18, "bold"),
+    header.pack(fill="x", padx=20, pady=(16, 0))
+    tk.Label(header, text="RX", font=(UI_FONT, 22, "bold"),
+             fg=MUTED, bg=BG).pack(side="left")
+    tk.Label(header, text="INFINITE", font=(UI_FONT, 22, "bold"),
              fg=ACCENT, bg=BG).pack(side="left")
     tk.Label(header, text="Community Rally Server", font=(UI_FONT, 9),
-             fg=MUTED, bg=BG).pack(side="left", padx=(10, 0), pady=(6, 0))
+             fg=MUTED, bg=BG).pack(side="left", padx=(12, 0), pady=(6, 0))
 
-    # --- Token config ---
+    # Accent stripe divider (web-style)
+    stripe = tk.Frame(main_tab, bg=ACCENT, height=2)
+    stripe.pack(fill="x", padx=20, pady=(6, 10))
+
+    # --- Token config (web card style) ---
     token_frame = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
-    token_frame.pack(fill="x", padx=20, pady=(10, 5))
+    token_frame.pack(fill="x", padx=20, pady=(0, 5))
 
-    tk.Label(token_frame, text="GAME TOKEN", font=(UI_FONT, 8, "bold"),
-             fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 2))
+    token_header = tk.Frame(token_frame, bg=BG_CARD)
+    token_header.pack(fill="x", padx=12, pady=(10, 2))
+    tk.Label(token_header, text="GAME SERVER TOKEN", font=(UI_FONT, 8, "bold"),
+             fg=ACCENT, bg=BG_CARD).pack(side="left")
+    tk.Label(token_header, text="//", font=(UI_FONT, 8, "bold"),
+             fg=MUTED, bg=BG_CARD).pack(side="left")
 
     token_input_frame = tk.Frame(token_frame, bg=BG_CARD)
-    token_input_frame.pack(fill="x", padx=12, pady=(0, 8))
+    token_input_frame.pack(fill="x", padx=12, pady=(0, 10))
 
     token_var = tk.StringVar(value=config.get("game_token", ""))
     token_entry = tk.Entry(
@@ -841,7 +852,7 @@ def run_gui():
     save_btn = tk.Button(
         token_input_frame, text="Save", font=(UI_FONT, 8, "bold"),
         bg=ACCENT, fg="#111", activebackground=ACCENT_BRIGHT, activeforeground="#111",
-        relief="flat", cursor="hand2", padx=10, pady=2,
+        relief="flat", cursor="hand2", padx=14, pady=3,
         command=save_token,
     )
     save_btn.pack(side="right", padx=(5, 0))
@@ -849,7 +860,7 @@ def run_gui():
     show_btn = tk.Button(
         token_input_frame, text="Show", font=(UI_FONT, 8, "bold"),
         bg=BG_ELEVATED, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
-        relief="flat", cursor="hand2", padx=10, pady=2,
+        relief="flat", cursor="hand2", padx=10, pady=3,
         command=toggle_token_visibility,
     )
     show_btn.pack(side="right", padx=(5, 0))
@@ -858,31 +869,39 @@ def run_gui():
     token_status_label.pack(anchor="w", padx=12, pady=(0, 6))
 
     if config.get("game_token"):
-        token_status_label.configure(text="Token configured", fg=GREEN)
+        token_status_label.configure(text="\u2713 Token configured", fg=GREEN)
     else:
         token_status_label.configure(text="Get token at rxinfinite.net/dashboard", fg=MUTED)
 
-    # --- Status ---
+    # --- Status (web card style) ---
     status_frame = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
-    status_frame.pack(fill="x", padx=20, pady=5)
+    status_frame.pack(fill="x", padx=20, pady=(0, 5))
 
-    status_dot = tk.Label(status_frame, text="\u25cf", font=(UI_FONT, 14),
-                          fg=MUTED, bg=BG_CARD)
-    status_dot.pack(side="left", padx=(15, 5), pady=10)
+    status_dot = tk.Label(status_frame, text="\u25cf", font=(UI_FONT, 16),
+                          fg="#555", bg=BG_CARD)
+    status_dot.pack(side="left", padx=(14, 4), pady=12)
 
-    status_label = tk.Label(status_frame, text="Stopped", font=(UI_FONT, 12, "bold"),
+    status_label = tk.Label(status_frame, text="Stopped", font=(UI_FONT, 13, "bold"),
                             fg=TEXT, bg=BG_CARD)
-    status_label.pack(side="left", pady=10)
+    status_label.pack(side="left", pady=12)
 
-    status_detail = tk.Label(status_frame, text="", font=(UI_FONT, 9),
+    status_detail = tk.Label(status_frame, text="Ready", font=(UI_FONT, 9),
                              fg=MUTED, bg=BG_CARD)
-    status_detail.pack(side="right", padx=15, pady=10)
+    status_detail.pack(side="right", padx=14, pady=12)
 
-    # --- Log area ---
-    log_frame = tk.Frame(main_tab, bg=BG)
-    log_frame.pack(fill="both", expand=True, padx=20, pady=(5, 5))
+    # --- Log area (web card style) ---
+    log_card = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
+    log_card.pack(fill="both", expand=True, padx=20, pady=(0, 5))
 
-    log_text = tk.Text(log_frame, height=5, bg=BG, fg=MUTED,
+    log_header = tk.Frame(log_card, bg=BG_CARD)
+    log_header.pack(fill="x", padx=12, pady=(6, 2))
+    tk.Label(log_header, text="LIVE LOG", font=(UI_FONT, 7, "bold"),
+             fg=ACCENT, bg=BG_CARD).pack(side="left")
+
+    log_frame = tk.Frame(log_card, bg=BG)
+    log_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+    log_text = tk.Text(log_frame, height=6, bg=BG, fg=MUTED,
                        font=(MONO_FONT, 8), relief="flat", wrap="word",
                        state="disabled", borderwidth=0)
     log_text.pack(fill="both", expand=True)
@@ -902,7 +921,7 @@ def run_gui():
 
     # --- Buttons ---
     btn_frame = tk.Frame(main_tab, bg=BG)
-    btn_frame.pack(fill="x", padx=20, pady=(5, 8))
+    btn_frame.pack(fill="x", padx=20, pady=(0, 8))
 
     easy_setup_var = tk.BooleanVar(value=config.get("easy_setup", True))
     easy_cb = tk.Checkbutton(
@@ -912,7 +931,7 @@ def run_gui():
         selectcolor=BG_ELEVATED, font=(UI_FONT, 9),
         highlightthickness=0, bd=0, anchor="w",
     )
-    easy_cb.pack(fill="x", pady=(0, 2))
+    easy_cb.pack(fill="x", pady=(4, 2))
 
     manual_link = tk.Label(
         btn_frame, text="Manual setup instructions \u2192",
@@ -921,7 +940,7 @@ def run_gui():
     )
     manual_link.bind(
         "<Button-1>",
-        lambda e: webbrowser.open("https://rxinfinite.net/install#manual"),
+        lambda e: webbrowser.open("https://github.com/FrigidKingX1/rxinfinite#readme"),
     )
 
     def _update_easy_setup():
@@ -935,29 +954,32 @@ def run_gui():
     easy_cb.configure(command=_update_easy_setup)
 
     start_btn = tk.Button(
-        btn_frame, text="START", font=(UI_FONT, 11, "bold"),
+        btn_frame, text="START SERVER", font=(UI_FONT, 12, "bold"),
         bg=GREEN, fg="#111", activebackground="#1a9e4a", activeforeground="#111",
-        relief="flat", cursor="hand2", padx=20, pady=10,
+        relief="flat", cursor="hand2", padx=20, pady=12,
     )
-    start_btn.pack(fill="x", pady=(0, 5))
+    start_btn.pack(fill="x", pady=(0, 4))
 
     # Show link below checkbox if starting unchecked
     if not easy_setup_var.get():
         manual_link.pack(fill="x", pady=(0, 5), before=start_btn)
 
     stop_btn = tk.Button(
-        btn_frame, text="STOP", font=(UI_FONT, 10, "bold"),
+        btn_frame, text="STOP SERVER", font=(UI_FONT, 10, "bold"),
         bg=BG_ELEVATED, fg=MUTED, activebackground="#333", activeforeground=TEXT,
         relief="flat", cursor="hand2", padx=20, pady=8,
         state="disabled",
     )
     stop_btn.pack(fill="x")
 
-    # --- Footer ---
+    # --- Footer (web-style) ---
     footer = tk.Frame(main_tab, bg=BG)
-    footer.pack(fill="x", padx=20, pady=(0, 12))
+    footer.pack(fill="x", padx=20, pady=(0, 10))
 
-    dash_link = tk.Label(footer, text="rxinfinite.net/dashboard", font=(UI_FONT, 8, "underline"),
+    tk.Label(footer, text="RXInfinite v" + VERSION + "  \u2014  Free & Open Source",
+             font=(UI_FONT, 7), fg="#555", bg=BG).pack(side="left")
+
+    dash_link = tk.Label(footer, text="Dashboard \u2192", font=(UI_FONT, 8, "underline"),
                          fg=ACCENT, bg=BG, cursor="hand2")
     dash_link.pack(side="right")
     dash_link.bind("<Button-1>", lambda e: webbrowser.open(DASHBOARD_URL))
@@ -976,11 +998,14 @@ def run_gui():
         return Path(val).expanduser() if val else DEFAULT_OVERLAY_DIR
 
     stream_header = tk.Frame(streaming_tab, bg=BG)
-    stream_header.pack(fill="x", padx=20, pady=(20, 5))
-    tk.Label(stream_header, text="OBS / SimHub", font=(UI_FONT, 16, "bold"),
+    stream_header.pack(fill="x", padx=20, pady=(16, 0))
+    tk.Label(stream_header, text="STREAMING", font=(UI_FONT, 16, "bold"),
              fg=ACCENT, bg=BG).pack(side="left")
-    tk.Label(stream_header, text="Live overlay text files", font=(UI_FONT, 9),
+    tk.Label(stream_header, text="OBS / SimHub overlays", font=(UI_FONT, 9),
              fg=MUTED, bg=BG).pack(side="left", padx=(10, 0), pady=(5, 0))
+
+    stream_stripe = tk.Frame(streaming_tab, bg=ACCENT, height=2)
+    stream_stripe.pack(fill="x", padx=20, pady=(6, 10))
 
     stream_card = tk.Frame(streaming_tab, bg=BG_CARD,
                            highlightbackground=BORDER, highlightthickness=1)
