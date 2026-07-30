@@ -914,6 +914,8 @@ LOCATION_SURFACE = {
     'Yas Marina':     'Tarmac',
 }
 
+SURFACE_OPTIONS = ['Tarmac', 'Gravel', 'Tarmac/Gravel']
+
 DURATION_OPTIONS = {
     '24h': ('daily', timedelta(hours=24)),
     '1week': ('weekly', timedelta(weeks=1)),
@@ -1093,10 +1095,11 @@ def _blank_stage(pos: int = 0) -> dict[str, Any]:
             'surface_deg': 'Medium', 'service_area': _service_area_for_pos(pos)}
 
 
-def _blank_event(num_stages: int = 1) -> dict[str, Any]:
+def _blank_event(num_stages: int = 1, surface: str = '') -> dict[str, Any]:
     return {
         'location': '',
         'car_class': '',
+        'surface': surface,
         'duration': {'days': 2, 'hours': 0, 'mins': 0},
         'stages': [_blank_stage(i) for i in range(max(1, num_stages))],
     }
@@ -1173,6 +1176,7 @@ def _random_championship_events(num_events: int, num_stages: int) -> list[dict[s
         events.append({
             'location': location,
             'car_class': car_class,
+            'surface': LOCATION_SURFACE.get(location, ''),
             'duration': {'days': 2, 'hours': 0, 'mins': 0},
             'stages': stages,
         })
@@ -1233,6 +1237,7 @@ def parse_championship_form(form: Any) -> dict[str, Any]:
         out_events.append({
             'location': (f.get('location') or '').strip(),
             'car_class': (f.get('car_class') or '').strip(),
+            'surface': (f.get('surface') or '').strip(),
             'duration': {
                 'days': _to_int_or_zero(f.get('duration_days')),
                 'hours': _to_int_or_zero(f.get('duration_hours')),
@@ -2764,6 +2769,7 @@ def _championship_edit_context(club: dict[str, Any], draft: dict[str, Any]) -> d
         rx_locs=sorted(loc for loc in STAGES if loc in RX_LOCATIONS),
         car_classes=list(CAR_CLASSES.keys()),
         condition_options=STAGE_CONDITIONS_OPTIONS,
+        surface_options=SURFACE_OPTIONS,
         surface_deg_options=SURFACE_DEG_OPTIONS,
         service_area_options=SERVICE_AREA_OPTIONS,
         stage_routes=STAGE_ROUTES, stage_caps=STAGE_CAPS,
@@ -3000,6 +3006,9 @@ def _validate_championship(events: list[dict[str, Any]]) -> list[str]:
         if cls not in CAR_CLASSES or vclass_id is None \
                 or vclass_id not in CONFIRMED_VEHICLE_CLASS_IDS:
             errors.append(f'Event {i}: invalid or unsupported vehicle class.')
+        surface = ev.get('surface', '')
+        if surface and surface not in SURFACE_OPTIONS:
+            errors.append(f'Event {i}: invalid surface.')
         errors.extend(f'Event {i}: {e}' for e in _validate_duration(ev.get('duration', {})))
         stages = ev.get('stages', [])
         cap = STAGE_CAPS.get(loc, len(STAGES.get(loc, [])))
@@ -3077,7 +3086,7 @@ def championship_submit(club_id: str, draft_id: str) -> Response:
         {
             'location': ev['location'],
             'car_class': ev['car_class'],
-            'surface': LOCATION_SURFACE.get(ev['location'], 'Gravel'),
+            'surface': ev.get('surface') or LOCATION_SURFACE.get(ev['location'], 'Gravel'),
             'duration': ev.get('duration', {}),
             'stages': [_enrich_stage(ev['location'], s) for s in ev.get('stages', [])],
         }

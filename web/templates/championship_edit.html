@@ -77,6 +77,13 @@
                 </select>
             </div>
             <div class="form-group">
+                <label class="form-label">Surface</label>
+                <select name="events[{{ ei }}][surface]" class="form-input form-select">
+                    <option value="">Auto (from location)</option>
+                    {% for s in surface_options %}<option value="{{ s }}" {% if event.surface == s %}selected{% endif %}>{{ s }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
                 <label class="form-label">Event Duration</label>
                 <div class="champ-duration">
                     <select name="events[{{ ei }}][duration_days]" class="form-input form-select" aria-label="Days">
