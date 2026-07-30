@@ -197,8 +197,14 @@ class RpcDispatcher:
         return handler
 
     def dispatch(self, method: str, params: Dict[str, Any]) -> Union[Dict[str, Any], bytes]:
+        print(f"[DISPATCH] >>> {method} params_keys={list(params.keys())}")
         handler = self._handlers.get(method, self._default_handler(method))
-        return handler(params)
+        result = handler(params)
+        if isinstance(result, dict):
+            print(f"[DISPATCH] <<< {method} result_keys={list(result.keys())}")
+        else:
+            print(f"[DISPATCH] <<< {method} raw_bytes={len(result)}")
+        return result
 
     def _default_handler(self, method: str) -> Handler:
         def handler(params: Dict[str, Any]) -> Dict[str, Any]:
@@ -665,20 +671,16 @@ class RpcDispatcher:
             is_rallycross = Location(location_id).discipline == "rallycross"
         except (ValueError, AttributeError):
             is_rallycross = False
-        # Clubs UI only supports rally discipline; for RX circuits on rally
-        # stages we keep discipline_id=1 and mark the stages as circuit format
-        # with enough opponents so the game doesn't crash on a 0-entrant race.
-        stages = self._stages_for_subevent(ev, chal_id, ei, track_ids)
         if is_rallycross:
-            for s in stages:
-                s.stage_type = 1
-                s.number_laps = 6
+            print(f"[CLUBS] RX sub-event: {ev.get('location','')} (location_id={location_id}) "
+                  f"tracks={track_ids}")
+        stages = self._stages_for_subevent(ev, chal_id, ei, track_ids)
         return Event(
             event_id=chal_id + ei * 10_000_000,
             location_id=location_id,
             discipline_id=1,
             stages=stages,
-            number_entrants=8 if is_rallycross else 0,
+            number_entrants=0,
             leaderboard_id=chal_id + 900000 + ei * 10_000_000,
         )
 
@@ -1854,6 +1856,14 @@ class RpcDispatcher:
 
     @staticmethod
     def _challenges(params: Dict[str, Any]) -> Dict[str, Any]:
+        # Log the exact params so we can see what the game client requests
+        param_keys = list(params.keys())
+        print(f"[CHALLENGES] Called with params keys={param_keys}")
+        for k in param_keys:
+            v = params[k]
+            if hasattr(v, 'value'):
+                v = v.value
+            print(f"[CHALLENGES]   {k} = {v!r}")
         return {"ok": True, "Challenges": []}
 
     def _resolve_event_id(self, challenge_id: int, label: str) -> Optional[str]:
