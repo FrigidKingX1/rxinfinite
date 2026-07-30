@@ -1,0 +1,124 @@
+{% extends 'base.html' %}
+{% block title %}{{ event.name }} - RXInfinite{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <div class="container">
+        <div class="page-header-content">
+            <div>
+                <p class="page-breadcrumb"><a href="/events?type={{ event.type }}">Events</a> <span class="accent">/</span></p>
+                <div class="page-header-badges">
+                    <span class="event-badge badge-{{ event.type }}">{{ event.type | upper }}</span>
+                    {% if club %}
+                    <a href="/clubs/{{ club.id }}" class="event-club-link">{{ club.name }}</a>
+                    {% endif %}
+                </div>
+                <h1 class="page-title">{{ event.name }}</h1>
+                <p class="page-subtitle text-muted">
+                    {{ rallies | length }} {{ 'rally' if rallies | length == 1 else 'rallies' }}
+                    &middot; {{ event.car_class }}
+                </p>
+            </div>
+            <div class="page-header-right">
+                <div class="countdown-large">
+                    <span class="countdown-label">Ends in</span>
+                    <span class="countdown-value mono">{{ event.end_time | countdown }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="container event-detail-layout">
+    <div class="event-detail-main">
+        <div class="card reveal">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Rallies</h2>
+                <span class="text-muted">{{ rallies | length }} {{ 'event' if rallies | length == 1 else 'events' }}</span>
+            </div>
+            <div class="card-body">
+                <div class="event-list-compact">
+                    {% for rally in rallies %}
+                    <a href="/events/{{ event.id }}/rally/{{ rally.index }}" class="event-row">
+                        <span class="event-badge badge-{{ event.type }} mono">{{ '%02d'|format(rally.index + 1) }}</span>
+                        <span class="event-row-name">{{ rally.location or '(location TBD)' }}</span>
+                        <span class="event-row-meta text-muted">
+                            {{ rally.count }} {{ 'stage' if rally.count == 1 else 'stages' }} &middot; {{ rally.duration_label }}
+                        </span>
+                        <span class="event-row-countdown accent">View &rarr;</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card reveal" style="animation-delay:.1s">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Championship Standings</h2>
+                <span class="text-muted">{{ entries | length }} entries</span>
+            </div>
+            <div class="card-body">
+                {% if entries %}
+                {% set leader = entries[0].total_time_ms %}
+                <div class="lb-table-wrap">
+                <table class="lb-table">
+                    <thead>
+                        <tr>
+                            <th class="lb-pos">Pos</th>
+                            <th class="lb-driver">Driver</th>
+                            <th class="lb-car">Car</th>
+                            <th class="lb-time">Total</th>
+                            <th class="lb-diff">Gap</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for entry in entries %}
+                        <tr class="{% if current_user and entry.username == current_user.username %}lb-row-me{% endif %}">
+                            <td class="lb-pos"><span class="pos-badge pos-{{ loop.index }}">{{ loop.index }}</span></td>
+                            <td class="lb-driver">
+                                <span class="lb-driver-inner">
+                                    <span class="lb-flag">{{ entry.username | user_flag }}</span>
+                                    <a href="/profile/{{ entry.username }}">{{ entry.username }}</a>
+                                </span>
+                            </td>
+                            <td class="lb-car text-muted">{{ entry.car }}</td>
+                            <td class="lb-time mono">{{ entry.total_time_ms | rally_time }}</td>
+                            <td class="lb-diff mono {% if loop.index == 1 %}text-green{% else %}text-red{% endif %}">
+                                {% if loop.index == 1 %}&mdash;{% else %}{{ (entry.total_time_ms - leader) | time_diff }}{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% else %}
+                <p class="text-muted empty-state">No entries yet. Be the first!</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="event-detail-side">
+        <div class="card reveal" style="animation-delay:.2s">
+            <div class="card-body event-info-card">
+                <div class="event-info-row">
+                    <span class="text-muted">Car Class</span>
+                    <span>{{ event.car_class }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Rallies</span>
+                    <span>{{ rallies | length }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Total Stages</span>
+                    <span>{{ rallies | sum(attribute='count') }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Entries</span>
+                    <span>{{ entries | length }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

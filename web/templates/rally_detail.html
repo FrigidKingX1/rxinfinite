@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% block title %}{{ rally.location }} - {{ event.name }} - RXInfinite{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <div class="container">
+        <div class="page-header-content">
+            <div>
+                <p class="page-breadcrumb">
+                    <a href="/events?type={{ event.type }}">Events</a> <span class="accent">/</span>
+                    <a href="/events/{{ event.id }}">{{ event.name }}</a> <span class="accent">/</span>
+                </p>
+                <div class="page-header-badges">
+                    <span class="event-badge badge-{{ event.type }} mono">Rally {{ rally.index + 1 }} of {{ rally_count }}</span>
+                    {% if club %}
+                    <a href="/clubs/{{ club.id }}" class="event-club-link">{{ club.name }}</a>
+                    {% endif %}
+                </div>
+                <h1 class="page-title">{{ rally.location or '(location TBD)' }}</h1>
+                <p class="page-subtitle text-muted">
+                    {{ rally.car_class }} &middot; {{ rally.surface }} &middot; {{ rally.duration_label }}
+                </p>
+            </div>
+            <div class="page-header-right">
+                <div class="countdown-large">
+                    <span class="countdown-label">Ends in</span>
+                    <span class="countdown-value mono">{{ event.end_time | countdown }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<div class="container event-detail-layout">
+    <div class="event-detail-main">
+        <div class="card reveal">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Stages</h2>
+                <span class="text-muted">{{ rally.stages | length }} stages &middot;
+                    {{ "%.1f"|format(rally.stages | sum(attribute='distance_km')) }} km total</span>
+            </div>
+            <div class="card-body">
+                <div class="stage-detail-list">
+                    {% for stage in rally.stages %}
+                    <div class="stage-detail-row">
+                        <span class="stage-detail-num">S{{ loop.index }}</span>
+                        <span class="stage-detail-name">{{ stage.name }}</span>
+                        <span class="stage-detail-conditions text-muted">{{ stage.conditions }}</span>
+                        {% if stage.surface_deg %}
+                        <span class="stage-detail-conditions text-muted">Deg: {{ stage.surface_deg }} &middot; Svc: {{ stage.service_area }}</span>
+                        {% endif %}
+                        <span class="stage-detail-km mono">{{ "%.1f"|format(stage.distance_km) }} km</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card reveal" style="animation-delay:.1s">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Rally Standings</h2>
+                <span class="text-muted">{{ standings | length }} entries</span>
+            </div>
+            <div class="card-body">
+                {% if standings %}
+                {% set leader = standings[0].total_time_ms %}
+                <div class="lb-table-wrap">
+                <table class="lb-table">
+                    <thead>
+                        <tr>
+                            <th class="lb-pos">Pos</th>
+                            <th class="lb-driver">Driver</th>
+                            <th class="lb-car">Car</th>
+                            {% for stage in rally.stages %}
+                            <th class="lb-stage-time">S{{ loop.index }}</th>
+                            {% endfor %}
+                            <th class="lb-time">Total</th>
+                            <th class="lb-diff">Gap</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                    {% for entry in standings %}
+                        <tr class="{% if current_user and entry.username == current_user.username %}lb-row-me{% endif %}">
+                            <td class="lb-pos"><span class="pos-badge pos-{{ loop.index }}">{{ loop.index }}</span></td>
+                            <td class="lb-driver">
+                                <span class="lb-driver-inner">
+                                    <span class="lb-flag">{{ entry.username | user_flag }}</span>
+                                    <a href="/profile/{{ entry.username }}">{{ entry.username }}</a>
+                                </span>
+                            </td>
+                            <td class="lb-car text-muted">{{ entry.car }}</td>
+                            {% for stage in rally.stages %}
+                                {% set st = entry.stages[loop.index0] if entry.stages | length > loop.index0 else None %}
+                                <td class="lb-stage-time mono text-muted">{% if st and st.time_ms %}{{ st.time_ms | rally_time }}{% else %}&mdash;{% endif %}</td>
+                            {% endfor %}
+                            <td class="lb-time mono">{{ entry.total_time_ms | rally_time }}</td>
+                            <td class="lb-diff mono {% if loop.index == 1 %}text-green{% else %}text-red{% endif %}">
+                                {% if loop.index == 1 %}&mdash;{% else %}{{ (entry.total_time_ms - leader) | time_diff }}{% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+                </div>
+                {% else %}
+                <p class="text-muted empty-state">No entries for this rally yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="event-detail-side">
+        <div class="card reveal" style="animation-delay:.2s">
+            <div class="card-body event-info-card">
+                <div class="event-info-row">
+                    <span class="text-muted">Location</span>
+                    <span>{{ rally.location }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Surface</span>
+                    <span>{{ rally.surface }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Car Class</span>
+                    <span>{{ rally.car_class }}</span>
+                </div>
+                <div class="event-info-row">
+                    <span class="text-muted">Total Distance</span>
+                    <span class="mono">{{ "%.1f"|format(rally.stages | sum(attribute='distance_km')) }} km</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

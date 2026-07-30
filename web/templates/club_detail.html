@@ -1,0 +1,339 @@
+{% extends 'base.html' %}
+{% block title %}{{ club.name }} - RXInfinite{% endblock %}
+
+{% block content %}
+<section class="page-header">
+    <div class="container">
+        <div class="page-header-content">
+            <div>
+                <p class="page-breadcrumb"><a href="/clubs">Clubs</a> <span class="accent">/</span></p>
+                <h1 class="page-title">
+                    {{ club.name }}
+                    {% if visibility == 'private' %}
+                    <span class="badge badge-muted" style="font-size:.55em; vertical-align:middle; margin-left:.5rem;">Private</span>
+                    {% endif %}
+                    {% if join_policy == 'approval' %}
+                    <span class="badge badge-muted" style="font-size:.55em; vertical-align:middle; margin-left:.25rem;">Approval required</span>
+                    {% endif %}
+                </h1>
+                <p class="page-subtitle text-muted">{{ club.description }}</p>
+            </div>
+            {% if current_user %}
+                {% if is_owner %}
+                <div style="display:flex; gap:.5rem;">
+                    <button type="button" class="btn btn-ghost btn-sm"
+                            onclick="document.getElementById('editClub').classList.toggle('hidden')">
+                        Edit Club
+                    </button>
+                </div>
+                {% elif is_member %}
+                <form method="post" action="/clubs/{{ club.id }}/leave">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Leave Club</button>
+                </form>
+                {% elif has_pending_invite %}
+                <div style="display:flex; gap:.5rem;">
+                    <form method="post" action="/clubs/{{ club.id }}/invite/accept" style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-primary btn-sm">Accept Invite</button>
+                    </form>
+                    <form method="post" action="/clubs/{{ club.id }}/invite/decline" style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-ghost btn-sm">Decline</button>
+                    </form>
+                </div>
+                {% elif has_pending_request %}
+                <form method="post" action="/clubs/{{ club.id }}/request/cancel">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm">Cancel Request</button>
+                </form>
+                {% elif join_policy == 'approval' %}
+                <form method="post" action="/clubs/{{ club.id }}/request">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Request to Join</button>
+                </form>
+                {% else %}
+                <form method="post" action="/clubs/{{ club.id }}/join">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-primary btn-sm">Join Club</button>
+                </form>
+                {% endif %}
+            {% endif %}
+        </div>
+    </div>
+</section>
+
+<div class="container club-detail-grid">
+    <div class="club-detail-main">
+        {% if is_owner %}
+        <div id="editClub" class="card reveal hidden" style="margin-bottom:1rem;">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Edit Club</h2>
+            </div>
+            <div class="card-body">
+                <form method="post" action="/clubs/{{ club.id }}/edit" class="create-event-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="create-event-grid">
+                        <div class="form-group">
+                            <label for="edit_name" class="form-label">Club Name</label>
+                            <input type="text" id="edit_name" name="name" class="form-input" required
+                                   maxlength="40" value="{{ club.name }}">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit_description" class="form-label">Description</label>
+                            <input type="text" id="edit_description" name="description" class="form-input"
+                                   value="{{ club.description }}">
+                        </div>
+                        <div class="form-group">
+                            <label for="edit_visibility" class="form-label">Visibility</label>
+                            <select id="edit_visibility" name="visibility" class="form-input form-select">
+                                <option value="public" {% if visibility == 'public' %}selected{% endif %}>Public (listed on /clubs)</option>
+                                <option value="private" {% if visibility == 'private' %}selected{% endif %}>Private (hidden from non-members)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="edit_join_policy" class="form-label">Join policy</label>
+                            <select id="edit_join_policy" name="join_policy" class="form-input form-select">
+                                <option value="open" {% if join_policy == 'open' %}selected{% endif %}>Open (anyone can join)</option>
+                                <option value="approval" {% if join_policy == 'approval' %}selected{% endif %}>Approval required</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="create-event-actions">
+                        <button type="submit" class="btn btn-primary">Save</button>
+                        <button type="button" class="btn btn-ghost"
+                                onclick="document.getElementById('editClub').classList.add('hidden')">Cancel</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        {% endif %}
+        <div class="card reveal">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Championships</h2>
+                {% if current_user and current_user.username == club.created_by %}
+                <div style="display:flex; gap:.5rem; flex-wrap:wrap;">
+                    <a href="/clubs/{{ club.id }}/championship/new" class="btn btn-primary btn-sm">
+                        + Create Championship
+                    </a>
+                    <button type="button" class="btn btn-ghost btn-sm"
+                            onclick="document.getElementById('createEvent').classList.toggle('hidden')">
+                        + Quick Event
+                    </button>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if current_user and current_user.username == club.created_by %}
+            <div id="createEvent" class="card-body create-event-form-wrap hidden">
+                <form method="post" action="/clubs/{{ club.id }}/events" class="create-event-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="create-event-grid">
+                        <div class="form-group">
+                            <label for="ev_name" class="form-label">Event Name</label>
+                            <input type="text" id="ev_name" name="name" class="form-input" required
+                                   maxlength="60" placeholder="e.g. Scandinavian Sprint">
+                        </div>
+                        <div class="form-group">
+                            <label for="ev_location" class="form-label">Location</label>
+                            <select id="ev_location" name="location" class="form-input form-select" required
+                                    data-stage-caps='{{ stage_caps|tojson }}'>
+                                <option value="">Select location...</option>
+                                <optgroup label="Rally">
+                                {% for loc in rally_locs %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                                </optgroup>
+                                <optgroup label="Rallycross">
+                                {% for loc in rx_locs %}
+                                <option value="{{ loc }}">{{ loc }}</option>
+                                {% endfor %}
+                                </optgroup>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ev_car_class" class="form-label">Vehicle Class</label>
+                            <select id="ev_car_class" name="car_class" class="form-input form-select" required>
+                                <option value="">Select class...</option>
+                                {% for cls in car_classes.keys() %}
+                                <option value="{{ cls }}">{{ cls }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ev_conditions" class="form-label">Conditions</label>
+                            <select id="ev_conditions" name="conditions" class="form-input form-select" required>
+                                {% for cond in conditions %}
+                                <option value="{{ cond }}">{{ cond }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="ev_num_stages" class="form-label">Number of Stages</label>
+                            <input type="number" id="ev_num_stages" name="num_stages" class="form-input"
+                                   min="1" max="12" value="3" required>
+                            <span class="form-hint" id="ev_stage_hint">Select a location to set the stage limit.</span>
+                        </div>
+                        <div class="form-group">
+                            <label for="ev_duration" class="form-label">Duration</label>
+                            <select id="ev_duration" name="duration" class="form-input form-select" required>
+                                <option value="24h">24 Hours (Daily)</option>
+                                <option value="1week" selected>1 Week (Weekly)</option>
+                                <option value="1month">1 Month (Monthly)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="create-event-actions">
+                        <button type="submit" class="btn btn-primary">Create Event</button>
+                        <button type="button" class="btn btn-ghost"
+                                onclick="document.getElementById('createEvent').classList.add('hidden')">Cancel</button>
+                    </div>
+                </form>
+            </div>
+            {% endif %}
+
+            <div class="card-body">
+                {% if events %}
+                <div class="event-list-compact">
+                    {% for event in events %}
+                    {% set n_rallies = (event.events | length) if event.events else 1 %}
+                    <a href="/events/{{ event.id }}" class="event-row">
+                        <span class="event-badge badge-{{ event.type }}">{{ event.type[:1] | upper }}</span>
+                        <span class="event-row-name">{{ event.name }}</span>
+                        <span class="event-row-meta text-muted">{{ n_rallies }} {{ 'rally' if n_rallies == 1 else 'rallies' }} &middot; {{ event.car_class }}</span>
+                        <span class="event-row-countdown mono">{{ event.end_time | countdown }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-muted empty-state">No championships in this club yet.</p>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="club-detail-side">
+        {% if is_owner and pending_users %}
+        <div class="card reveal">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Pending requests <span class="text-muted">({{ pending_users | length }})</span></h2>
+            </div>
+            <div class="card-body">
+                <div class="member-list">
+                    {% for p in pending_users %}
+                    <div class="member-row" style="display:flex; flex-direction:column; gap:.4rem; align-items:stretch;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:.5rem;">
+                            <a href="/profile/{{ p.user.username }}" class="member-name">{{ p.user.display_name }}</a>
+                            <span class="member-country text-muted">{{ p.requested_at | timeago }}</span>
+                        </div>
+                        <div style="display:flex; gap:.4rem;">
+                            <form method="post" action="/clubs/{{ club.id }}/requests/{{ p.user.username }}/approve" style="margin:0; flex:1;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-primary btn-sm" style="width:100%;">Approve</button>
+                            </form>
+                            <form method="post" action="/clubs/{{ club.id }}/requests/{{ p.user.username }}/deny" style="margin:0; flex:1;">
+                                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                                <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;">Deny</button>
+                            </form>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if is_owner %}
+        <div class="card reveal">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Invite members</h2>
+            </div>
+            <div class="card-body">
+                <form method="post" action="/clubs/{{ club.id }}/invite" style="display:flex; gap:.5rem; align-items:flex-end;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="form-group" style="flex:1; margin:0;">
+                        <label for="invite_username" class="form-label">Username</label>
+                        <input type="text" id="invite_username" name="username" class="form-input" required maxlength="40" placeholder="exact username">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-sm">Send invite</button>
+                </form>
+
+                {% if pending_invites %}
+                <div class="member-list" style="margin-top:1rem;">
+                    {% for p in pending_invites %}
+                    <div class="member-row" style="display:flex; flex-direction:column; gap:.4rem; align-items:stretch;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:.5rem;">
+                            <a href="/profile/{{ p.user.username }}" class="member-name">{{ p.user.display_name }}</a>
+                            <span class="member-country text-muted">{{ p.created_at | timeago }}</span>
+                        </div>
+                        <form method="post" action="/clubs/{{ club.id }}/invites/{{ p.user.username }}/cancel" style="margin:0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-ghost btn-sm" style="width:100%;">Cancel invite</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                <div style="margin-top:1.25rem;">
+                    <p class="text-muted" style="font-size:.85rem; margin-bottom:.5rem;">Or share an invite link:</p>
+                    {% for link in invite_links %}
+                    <div style="display:flex; gap:.5rem; align-items:center; margin-bottom:.5rem;">
+                        <input type="text" readonly class="form-input" style="flex:1; font-family:var(--font-mono); font-size:.8rem;"
+                               value="{{ site_url }}/clubs/{{ club.id }}/join/{{ link.token }}">
+                        <form method="post" action="/clubs/{{ club.id }}/invite-link/{{ link.token }}/revoke" style="margin:0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-ghost btn-sm">Revoke</button>
+                        </form>
+                    </div>
+                    {% endfor %}
+                    <form method="post" action="/clubs/{{ club.id }}/invite-link" style="margin-top:.25rem;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-ghost btn-sm">Generate new link</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        <div class="card reveal" style="animation-delay:.1s">
+            <div class="card-header">
+                <h2 class="card-title"><span class="accent">//</span> Members <span class="text-muted">({{ members | length }})</span></h2>
+            </div>
+            <div class="card-body">
+                <div class="member-list">
+                    {% for member in members %}
+                    <a href="/profile/{{ member.username }}" class="member-row">
+                        <span class="member-name">{{ member.display_name }}</span>
+                        <span class="member-country text-muted">{{ member.country | country_flag }} {{ member.country }}</span>
+                        {% if member.username == club.created_by %}
+                        <span class="member-badge">Owner</span>
+                        {% endif %}
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card reveal" style="animation-delay:.15s">
+            <div class="card-body club-info-card">
+                <div class="club-info-row">
+                    <span class="text-muted">Created by</span>
+                    <a href="/profile/{{ club.created_by }}">{{ club.created_by }}</a>
+                </div>
+                <div class="club-info-row">
+                    <span class="text-muted">Created</span>
+                    <span>{{ club.created_at | timeago }}</span>
+                </div>
+                <div class="club-info-row">
+                    <span class="text-muted">Members</span>
+                    <span>{{ members | length }}</span>
+                </div>
+                <div class="club-info-row">
+                    <span class="text-muted">Events</span>
+                    <span>{{ events | length }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+__pycache__
+dr2server/__pycache__
+/captures
+runtime
+scripts/__pycache__
+*.egg-info/
+.pytest_cache/
+web/data
+web/.venv
+.env
+data/upstream_templates/
+
+# PyInstaller (build_exe.py)
+dist/
+build/
+*.spec
+
+# Local virtualenvs
+.venv/
+.venv-build/

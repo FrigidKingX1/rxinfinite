@@ -1,0 +1,1565 @@
+"""RXInfinite — DiRT Rally 2.0 community server with GUI.
+
+A tkinter GUI with START / STOP buttons that handles cert generation,
+hosts file management, and the game server lifecycle.
+
+PyInstaller compiles this file into a single executable via build_exe.py.
+"""
+from __future__ import annotations
+
+import json
+import os
+import shutil
+import subprocess
+import sys
+import threading
+import webbrowser
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Optional
+
+IS_WIN = sys.platform == "win32"
+IS_LINUX = sys.platform == "linux"
+
+if IS_WIN:
+    import ctypes
+
+DR2_STEAM_APPID = 690790
+
+# Cap elevation calls at 5 minutes — if polkit/UAC hangs, surface it as a
+# failure in the GUI log instead of leaving the worker thread stuck forever.
+ELEVATION_TIMEOUT_SECONDS = 300
+
+UI_FONT = "Segoe UI" if IS_WIN else "DejaVu Sans"
+MONO_FONT = "Consolas" if IS_WIN else "DejaVu Sans Mono"
+
+def _read_version() -> str:
+    """Read version from VERSION file (bundled or local)."""
+    for base in [Path(getattr(sys, "_MEIPASS", "")), Path(__file__).parent]:
+        vf = base / "VERSION"
+        if vf.is_file():
+            return vf.read_text().strip()
+    return "dev"
+
+VERSION = _read_version()
+
+# ---------------------------------------------------------------------------
+# Resource-path helpers (PyInstaller bundle detection)
+# ---------------------------------------------------------------------------
+
+def _bundle_root() -> Path:
+    if hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).parent
+
+
+def _data_dir() -> Path:
+    return _bundle_root() / "data"
+
+
+def _icon_path() -> Optional[Path]:
+    """Return the path to the app icon PNG, or None if not found.
+
+    Bundled builds carry it at the bundle root; in dev we fall back to the
+    web/static logo so running from source shows the same icon.
+    """
+    for candidate in (
+        _bundle_root() / "logo.png",
+        Path(__file__).parent / "web" / "static" / "logo.png",
+    ):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+
+if IS_WIN:
+    APPDATA = Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming"))
+    RXINFINITE_DIR = APPDATA / "RXInfinite"
+    _DEFAULT_HOSTS = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "drivers" / "etc" / "hosts"
+    HOSTS_NEWLINE = "\r\n"
+else:
+    _xdg = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    RXINFINITE_DIR = Path(_xdg) / "rxinfinite"
+    _DEFAULT_HOSTS = Path("/etc/hosts")
+    HOSTS_NEWLINE = "\n"
+
+# Env override is honored on all platforms — used by CI integration tests so
+# the elevation path can be exercised without touching the real system hosts
+# file. Also useful for local dry-run testing.
+HOSTS_FILE = Path(os.environ["RXINFINITE_HOSTS_FILE"]) if "RXINFINITE_HOSTS_FILE" in os.environ else _DEFAULT_HOSTS
+
+CONFIG_PATH = RXINFINITE_DIR / "config.json"
+CERTS_DIR = RXINFINITE_DIR / "certs"
+CERT_PATH = CERTS_DIR / "dr2server-cert.pem"
+KEY_PATH = CERTS_DIR / "dr2server-key.pem"
+LOG_PATH = RXINFINITE_DIR / "debug.log"
+CAPTURES_DIR = RXINFINITE_DIR / "captures"
+
+
+class _TeeStream:
+    """Forward writes to a file and (optionally) the original stream.
+
+    Used to redirect sys.stdout / sys.stderr inside the PyInstaller --windowed
+    build, where the original streams are None or point at NUL. The file is
+    line-buffered so a crash still leaves us with everything up to the last
+    newline.
+    """
+
+    def __init__(self, file_obj, original=None):
+        self._file = file_obj
+        self._original = original
+
+    def write(self, data: str) -> int:
+        try:
+            if self._original is not None:
+                self._original.write(data)
+        except Exception:
+            pass
+        try:
+            self._file.write(data)
+            self._file.flush()
+        except Exception:
+            pass
+        return len(data)
+
+    def flush(self) -> None:
+        for s in (self._original, self._file):
+            if s is None:
+                continue
+            try:
+                s.flush()
+            except Exception:
+                pass
+
+
+_LOG_FILE = None  # set by _setup_file_logging() so log() can tee into it
+
+
+def _setup_file_logging() -> None:
+    """Open debug.log and redirect stdout/stderr into it.
+
+    Called once at process start so PyInstaller --windowed builds (where
+    sys.stdout is None) still leave a debuggable trail on disk.
+    """
+    global _LOG_FILE
+    try:
+        RXINFINITE_DIR.mkdir(parents=True, exist_ok=True)
+        # Truncate per-launch so the file reflects the current session, not
+        # months of accumulated history. The previous run is rotated to
+        # debug.prev.log so we still have it if the user reports an issue
+        # after restarting.
+        if LOG_PATH.exists():
+            try:
+                prev = LOG_PATH.with_name(f"{LOG_PATH.stem}.prev{LOG_PATH.suffix}")
+                if prev.exists():
+                    prev.unlink()
+                LOG_PATH.rename(prev)
+            except OSError:
+                pass
+        _LOG_FILE = open(LOG_PATH, "w", encoding="utf-8", buffering=1)
+    except OSError:
+        _LOG_FILE = None
+        return
+
+    from datetime import datetime as _dt
+    header = (
+        f"=== RXInfinite debug.log opened "
+        f"{_dt.now().isoformat(timespec='seconds')} ===\n"
+    )
+    _LOG_FILE.write(header)
+    _LOG_FILE.flush()
+
+    sys.stdout = _TeeStream(_LOG_FILE, original=sys.stdout)
+    sys.stderr = _TeeStream(_LOG_FILE, original=sys.stderr)
+
+REDIRECT_DOMAINS = [
+    "prod.egonet.codemasters.com",
+    "qa.egonet.codemasters.com",
+    "terms.codemasters.com",
+    "aurora.codemasters.local",
+]
+
+HOSTS_BEGIN = "# BEGIN RXINFINITE"
+HOSTS_END = "# END RXINFINITE"
+SERVER_IP = "127.0.0.1"
+DASHBOARD_URL = "https://rxinfinite.net/dashboard"
+API_URL = "https://rxinfinite.net"
+
+
+# ---------------------------------------------------------------------------
+# Admin helpers
+# ---------------------------------------------------------------------------
+
+def is_admin() -> bool:
+    if IS_WIN:
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False
+    return os.geteuid() == 0
+
+
+def run_as_admin(args: list[str]) -> int:
+    """Run a subprocess elevated. Returns exit code."""
+    if IS_WIN:
+        exe = sys.executable
+        quoted = " ".join(f'"{a}"' for a in args)
+        cmd = f'Start-Process -FilePath "{exe}" -ArgumentList \'{quoted}\' -Verb RunAs -Wait'
+        result = subprocess.run(
+            ["powershell", "-Command", cmd], capture_output=True,
+            timeout=ELEVATION_TIMEOUT_SECONDS,
+        )
+        return result.returncode
+    # Linux: pkexec runs the literal argv as root. First arg should be an executable.
+    result = subprocess.run(["pkexec", *args], timeout=ELEVATION_TIMEOUT_SECONDS)
+    return result.returncode
+
+
+def _self_invocation_args() -> list[str]:
+    """Argv that re-launches this same program (for elevated helper calls).
+
+    PyInstaller --onefile: sys.executable IS the app .exe, no script arg needed.
+    Source mode: sys.executable is python.exe, so we need to pass our .py path.
+    Critical: in PyInstaller mode the bootloader can't run a .py path passed as
+    argv — that's the bug that left Win11 (and Win10, silently) without hosts
+    configured, because the elevated child just re-opened the GUI instead of
+    running the helper script.
+    """
+    # _is_pyinstaller_bundle is defined later; inline the same check here.
+    if hasattr(sys, "_MEIPASS") or getattr(sys, "frozen", False):
+        return [sys.executable]
+    return [sys.executable, str(Path(__file__).resolve())]
+
+
+def _windows_elevate_admin_helper(op: str, timeout: int = ELEVATION_TIMEOUT_SECONDS) -> int:
+    """Re-launch ourselves with `--admin-helper <op>` via UAC. Returns the
+    PowerShell exit code (NOT the elevated child's — Start-Process -Wait
+    doesn't surface that). Callers verify the side effect (hosts_configured)
+    rather than trusting the return code.
+    """
+    invocation = _self_invocation_args() + ["--admin-helper", op]
+    file_path = invocation[0]
+    arg_list = " ".join(f'"{a}"' for a in invocation[1:])
+    ps_cmd = (
+        f'Start-Process -FilePath "{file_path}" '
+        f"-ArgumentList '{arg_list}' -Verb RunAs -Wait"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps_cmd],
+        capture_output=True,
+        timeout=timeout,
+    )
+    return result.returncode
+
+
+def _run_admin_helper(op: str) -> int:
+    """Entry point for the elevated subprocess. Performs the privileged
+    work (cert trust + hosts edits) and returns an exit code.
+    """
+    try:
+        if op == "start":
+            if IS_WIN and cert_exists():
+                install_cert_trust()
+            add_hosts()
+            return 0
+        if op == "stop":
+            remove_hosts()
+            return 0
+    except Exception:
+        return 2
+    return 1
+
+
+# ---------------------------------------------------------------------------
+# TLS certificate
+# ---------------------------------------------------------------------------
+
+def generate_cert() -> None:
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    CERTS_DIR.mkdir(parents=True, exist_ok=True)
+    hosts = REDIRECT_DOMAINS + ["localhost"]
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    subject = issuer = x509.Name([
+        x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "RXInfinite"),
+        x509.NameAttribute(NameOID.COMMON_NAME, hosts[0]),
+    ])
+    now = datetime.now(timezone.utc)
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject).issuer_name(issuer)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(now - timedelta(days=1))
+        .not_valid_after(now + timedelta(days=3650))
+        .add_extension(x509.SubjectAlternativeName([x509.DNSName(h) for h in hosts]), critical=False)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(key, hashes.SHA256())
+    )
+    CERT_PATH.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+    KEY_PATH.write_bytes(key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    ))
+
+
+def cert_exists() -> bool:
+    return CERT_PATH.exists() and KEY_PATH.exists()
+
+
+def install_cert_trust() -> bool:
+    """Install cert into Windows Root store. Returns True on success."""
+    result = subprocess.run(
+        ["certutil", "-addstore", "Root", str(CERT_PATH)],
+        capture_output=True, text=True,
+    )
+    return result.returncode == 0
+
+
+# ---------------------------------------------------------------------------
+# Linux: cert trust into DR2's Proton prefix
+# ---------------------------------------------------------------------------
+
+def _find_dr2_proton_prefix() -> Optional[Path]:
+    home = Path.home()
+    candidates = [
+        home / ".steam" / "steam" / "steamapps" / "compatdata" / str(DR2_STEAM_APPID) / "pfx",
+        home / ".local" / "share" / "Steam" / "steamapps" / "compatdata" / str(DR2_STEAM_APPID) / "pfx",
+        home / ".steam" / "root" / "steamapps" / "compatdata" / str(DR2_STEAM_APPID) / "pfx",
+    ]
+    for c in candidates:
+        if c.is_dir():
+            return c
+    return None
+
+
+def _find_proton_wine() -> Optional[Path]:
+    """Locate the newest Proton-bundled wine binary."""
+    home = Path.home()
+    roots = [
+        home / ".steam" / "steam" / "steamapps" / "common",
+        home / ".local" / "share" / "Steam" / "steamapps" / "common",
+    ]
+    matches: list[Path] = []
+    for r in roots:
+        if not r.is_dir():
+            continue
+        for entry in sorted(r.iterdir()):
+            if not entry.name.startswith("Proton"):
+                continue
+            wine = entry / "files" / "bin" / "wine"
+            if wine.is_file():
+                matches.append(wine)
+    if not matches:
+        return None
+    # Sort by parent dir name (e.g. "Proton 10.0") so newer Proton wins.
+    matches.sort(key=lambda p: p.parent.parent.parent.name)
+    return matches[-1]
+
+
+def install_cert_into_dr2_prefix(cert_path: Path) -> tuple[bool, str]:
+    """Trust the cert inside DR2's Proton/Wine prefix. Returns (ok, message).
+
+    The message is either a success summary or a copy-pasteable manual command.
+    """
+    # Prefer protontricks-launch when available — it handles prefix discovery
+    # and picks the correct Proton wine for this AppID automatically.
+    if shutil.which("protontricks-launch"):
+        try:
+            result = subprocess.run(
+                [
+                    "protontricks-launch", "--appid", str(DR2_STEAM_APPID),
+                    "certutil", "-addstore", "Root", str(cert_path),
+                ],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                return True, "Cert trusted via protontricks-launch."
+        except subprocess.TimeoutExpired:
+            pass  # Fall through to the wine-direct path below.
+
+    pfx = _find_dr2_proton_prefix()
+    if pfx is None:
+        manual = (
+            "Could not locate DR2's Proton prefix at "
+            "~/.steam/steam/steamapps/compatdata/690790/pfx. "
+            "Launch DiRT Rally 2.0 once via Steam (Proton) to create it, then click START again. "
+            f"Manual command:\n  WINEPREFIX=<dr2-pfx> wine certutil -addstore Root {cert_path}"
+        )
+        return False, manual
+
+    wine = _find_proton_wine()
+    if wine is None:
+        wine_path = shutil.which("wine")
+        if wine_path:
+            wine = Path(wine_path)
+    if wine is None:
+        manual = (
+            "No Proton wine binary found under ~/.steam/.../common/Proton*/files/bin/wine "
+            "and no system 'wine' on PATH. "
+            f"Manual command:\n  WINEPREFIX={pfx} wine certutil -addstore Root {cert_path}"
+        )
+        return False, manual
+
+    env = os.environ.copy()
+    env["WINEPREFIX"] = str(pfx)
+    env["WINEDLLOVERRIDES"] = "mscoree=,mshtml="
+    env.setdefault("WINEDEBUG", "-all")
+    result = subprocess.run(
+        [str(wine), "certutil", "-addstore", "Root", str(cert_path)],
+        env=env, capture_output=True, text=True, timeout=120,
+    )
+    if result.returncode == 0:
+        return True, f"Cert trusted in {pfx} via {wine}."
+    err = (result.stderr or result.stdout or "").strip().splitlines()[-1:] or [""]
+    manual = (
+        f"wine certutil failed ({err[0]}). Try manually:\n"
+        f"  WINEPREFIX={pfx} '{wine}' certutil -addstore Root {cert_path}"
+    )
+    return False, manual
+
+
+# ---------------------------------------------------------------------------
+# Hosts file
+# ---------------------------------------------------------------------------
+
+def _read_hosts() -> str:
+    try:
+        return HOSTS_FILE.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return HOSTS_FILE.read_text(encoding="latin-1")
+
+
+def _strip_block(content: str) -> str:
+    lines = content.splitlines(keepends=True)
+    out, inside = [], False
+    for line in lines:
+        s = line.strip()
+        if s == HOSTS_BEGIN:
+            inside = True; continue
+        if s == HOSTS_END:
+            inside = False; continue
+        if not inside:
+            out.append(line)
+    return "".join(out)
+
+
+def hosts_configured() -> bool:
+    try:
+        content = _read_hosts()
+    except OSError:
+        return False
+    return HOSTS_BEGIN in content and REDIRECT_DOMAINS[0] in content
+
+
+def add_hosts() -> None:
+    existing = _read_hosts()
+    cleaned = _strip_block(existing).rstrip("\r\n")
+    nl = HOSTS_NEWLINE
+    block = [HOSTS_BEGIN] + [f"{SERVER_IP}\t{d}" for d in REDIRECT_DOMAINS] + [HOSTS_END]
+    new = (cleaned + nl + nl + nl.join(block) + nl) if cleaned else (nl.join(block) + nl)
+    HOSTS_FILE.write_bytes(new.encode("utf-8"))
+
+
+def remove_hosts() -> None:
+    existing = _read_hosts()
+    cleaned = _strip_block(existing)
+    HOSTS_FILE.write_bytes(cleaned.encode("utf-8"))
+
+
+# ---------------------------------------------------------------------------
+# Linux: port-443 capability via setcap
+# ---------------------------------------------------------------------------
+
+def _is_pyinstaller_bundle() -> bool:
+    return hasattr(sys, "_MEIPASS") or getattr(sys, "frozen", False)
+
+
+def _elevation_target_binary() -> Path:
+    """The binary that needs cap_net_bind_service.
+
+    For PyInstaller --onefile this is the bootloader ELF (sys.executable).
+    For source runs (`python rxinfinite.py`) this is the python interpreter.
+    Either way: setcap on `sys.executable` is correct and scoped.
+    """
+    return Path(sys.executable).resolve()
+
+
+def _system_python_for_helper() -> Optional[Path]:
+    """A real Python interpreter to run the elevated helper script.
+
+    sys.executable is unsuitable in PyInstaller mode because it's the bundled
+    bootloader, not a python that can run an arbitrary .py file. Find the
+    system python3 instead. In source mode sys.executable is fine.
+    """
+    if not _is_pyinstaller_bundle():
+        return Path(sys.executable)
+    for cand in ("python3", "python"):
+        path = shutil.which(cand)
+        if path:
+            return Path(path)
+    for cand in ("/usr/bin/python3", "/usr/local/bin/python3"):
+        if Path(cand).is_file():
+            return Path(cand)
+    return None
+
+
+def _relaunch_with_auto_start() -> None:
+    """Re-exec ourselves so a freshly-granted cap_net_bind_service applies.
+
+    File capabilities only attach to a process at execve() time, so a setcap
+    we just performed via pkexec doesn't help the currently-running GUI. We
+    pass RXINFINITE_AUTO_START so the new instance auto-clicks START.
+    """
+    env = {**os.environ, "RXINFINITE_AUTO_START": "1"}
+    # Frozen: [exe]. Source: [python, rxinfinite.py]. Passing sys.argv[1:]
+    # alone would drop the script path and re-exec a bare interpreter.
+    argv = [*_self_invocation_args(), *sys.argv[1:]]
+    os.execve(argv[0], argv, env)
+
+
+def has_port_capability(binary: Path) -> bool:
+    getcap = shutil.which("getcap")
+    if not getcap:
+        return False
+    result = subprocess.run([getcap, str(binary)], capture_output=True, text=True)
+    return "cap_net_bind_service" in (result.stdout or "")
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+def load_config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def save_config(config: dict) -> None:
+    RXINFINITE_DIR.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(config, indent=2), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Elevated helper-script content (Linux: invoked via pkexec).
+# Windows uses the in-process `--admin-helper` re-launch path instead.
+# ---------------------------------------------------------------------------
+
+
+def _linux_admin_start_script(setcap_target: Path) -> str:
+    """Helper Python script (run via pkexec) that:
+       1. Grants cap_net_bind_service to setcap_target.
+       2. Writes the /etc/hosts block.
+    """
+    return (
+        "import subprocess\n"
+        f"target = {str(setcap_target)!r}\n"
+        "r = subprocess.run(['setcap', 'cap_net_bind_service=+ep', target], capture_output=True, text=True)\n"
+        "print('setcap:', 'ok' if r.returncode == 0 else 'fail ' + (r.stderr or '').strip())\n"
+        f"hosts = {str(HOSTS_FILE)!r}\n"
+        "try:\n"
+        "    content = open(hosts, encoding='utf-8').read()\n"
+        "except UnicodeDecodeError:\n"
+        "    content = open(hosts, encoding='latin-1').read()\n"
+        "lines, out, inside = content.splitlines(True), [], False\n"
+        "for l in lines:\n"
+        "    s = l.strip()\n"
+        f"    if s == {HOSTS_BEGIN!r}: inside = True; continue\n"
+        f"    if s == {HOSTS_END!r}: inside = False; continue\n"
+        "    if not inside: out.append(l)\n"
+        "cleaned = ''.join(out).rstrip('\\n')\n"
+        f"block = '\\n'.join([{HOSTS_BEGIN!r}] + "
+        f"[{SERVER_IP!r} + '\\t' + d for d in {REDIRECT_DOMAINS!r}] + "
+        f"[{HOSTS_END!r}])\n"
+        "new = (cleaned + '\\n\\n' + block + '\\n') if cleaned else (block + '\\n')\n"
+        "open(hosts, 'wb').write(new.encode('utf-8'))\n"
+        "print('hosts: ok')\n"
+    )
+
+
+def _linux_admin_stop_script() -> str:
+    return (
+        f"hosts = {str(HOSTS_FILE)!r}\n"
+        "try:\n"
+        "    content = open(hosts, encoding='utf-8').read()\n"
+        "except UnicodeDecodeError:\n"
+        "    content = open(hosts, encoding='latin-1').read()\n"
+        "lines, out, inside = content.splitlines(True), [], False\n"
+        "for l in lines:\n"
+        "    s = l.strip()\n"
+        f"    if s == {HOSTS_BEGIN!r}: inside = True; continue\n"
+        f"    if s == {HOSTS_END!r}: inside = False; continue\n"
+        "    if not inside: out.append(l)\n"
+        "open(hosts, 'wb').write(''.join(out).encode('utf-8'))\n"
+        "print('ok')\n"
+    )
+
+
+# ---------------------------------------------------------------------------
+# GUI
+# ---------------------------------------------------------------------------
+
+def run_gui():
+    import tkinter as tk
+    from tkinter import ttk, messagebox
+
+    config = load_config()
+    server_thread: Optional[threading.Thread] = None
+    server_running = threading.Event()
+    shutdown_flag = threading.Event()
+    # Mutable holder so closures defined before the writer exists can still
+    # reach it after server_worker() instantiates one.
+    streaming_writer: dict = {"instance": None}
+    # Same trick for the dispatcher — we need to flip verbose_logging on
+    # the live instance when the user toggles the checkbox in the Logs tab.
+    dispatcher_holder: dict = {"instance": None}
+
+    # Colors (matched to rxinfinite.net web theme)
+    BG = "#08080C"
+    BG_CARD = "#14141C"
+    BG_ELEVATED = "#1A1A24"
+    ACCENT = "#E8720C"
+    ACCENT_BRIGHT = "#FF8C2E"
+    GREEN = "#22C55E"
+    RED = "#EF4444"
+    TEXT = "#E8E4DF"
+    MUTED = "#8A8992"
+    BORDER = "#2A2A36"
+
+    # --- Window setup ---
+    root = tk.Tk()
+    root.title(f"RXInfinite v{VERSION}")
+    root.resizable(False, False)
+    root.configure(bg=BG)
+
+    # Replace Tk's default feather icon with the RXInfinite logo. Keep a
+    # reference on `root` so the PhotoImage isn't garbage-collected; Tk
+    # only holds a weak reference and the taskbar icon vanishes otherwise.
+    icon_file = _icon_path()
+    if icon_file is not None:
+        try:
+            root._app_icon = tk.PhotoImage(file=str(icon_file))
+            root.iconphoto(True, root._app_icon)
+        except tk.TclError:
+            pass
+
+    # Center on screen
+    w, h = 440, 560
+    x = (root.winfo_screenwidth() - w) // 2
+    y = (root.winfo_screenheight() - h) // 2
+    root.geometry(f"{w}x{h}+{x}+{y}")
+
+    style = ttk.Style()
+    try:
+        style.theme_use("default")
+    except tk.TclError:
+        pass
+    style.configure("TNotebook", background=BG, borderwidth=0)
+    style.configure(
+        "TNotebook.Tab",
+        background=BG_ELEVATED,
+        foreground=MUTED,
+        padding=(14, 6),
+        font=(UI_FONT, 9, "bold"),
+        borderwidth=0,
+    )
+    style.map(
+        "TNotebook.Tab",
+        background=[("selected", BG_CARD)],
+        foreground=[("selected", ACCENT)],
+    )
+
+    # --- Update check (non-blocking) ---
+    GOLD = "#F59E0B"
+    update_bar = tk.Frame(root, bg=GOLD)
+    update_label = tk.Label(update_bar, text="", font=(UI_FONT, 9, "bold"),
+                            fg="#111", bg=GOLD, cursor="hand2")
+    update_label.pack(padx=10, pady=4)
+
+    def _check_for_updates():
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                "https://api.github.com/repos/winrid/rxinfinite/releases/latest",
+                headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "RXInfinite"},
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                data = json.loads(resp.read())
+            remote_tag = data.get("tag_name", "").lstrip("v")
+            # Match the canonical asset name exactly — debug builds, signed
+            # variants, etc. should not be picked up by the update banner.
+            wanted_name = "RXInfinite.exe" if IS_WIN else "RXInfinite-linux-x86_64"
+            dl_url = ""
+            for asset in data.get("assets", []):
+                if asset.get("name") == wanted_name:
+                    dl_url = asset.get("browser_download_url", "")
+                    break
+            if not remote_tag or not dl_url:
+                return
+            # Simple version compare (works for semver with same segment count)
+            remote_parts = [int(x) for x in remote_tag.split(".")]
+            local_parts = [int(x) for x in VERSION.split(".") if x.isdigit()]
+            if remote_parts > local_parts:
+                def show():
+                    update_label.configure(
+                        text=f"Update available: v{remote_tag}  —  click to download")
+                    update_label.bind("<Button-1>", lambda e: webbrowser.open(dl_url))
+                    update_bar.pack(fill="x", padx=20, pady=(5, 0), before=notebook)
+                root.after(0, show)
+        except Exception:
+            pass  # Silent fail — update check is best-effort
+
+    threading.Thread(target=_check_for_updates, daemon=True).start()
+
+    # --- Tabbed layout ---
+    notebook = ttk.Notebook(root)
+    notebook.pack(fill="both", expand=True)
+    main_tab = tk.Frame(notebook, bg=BG)
+    streaming_tab = tk.Frame(notebook, bg=BG)
+    advanced_tab = tk.Frame(notebook, bg=BG)
+    notebook.add(main_tab, text="Main")
+    notebook.add(streaming_tab, text="Streaming")
+    notebook.add(advanced_tab, text="Logs")
+
+    # --- Header ---
+    header = tk.Frame(main_tab, bg=BG)
+    header.pack(fill="x", padx=20, pady=(20, 5))
+    tk.Label(header, text="RXINFINITE", font=(UI_FONT, 18, "bold"),
+             fg=ACCENT, bg=BG).pack(side="left")
+    tk.Label(header, text="Community Rally Server", font=(UI_FONT, 9),
+             fg=MUTED, bg=BG).pack(side="left", padx=(10, 0), pady=(6, 0))
+
+    # --- Token config ---
+    token_frame = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
+    token_frame.pack(fill="x", padx=20, pady=(10, 5))
+
+    tk.Label(token_frame, text="GAME TOKEN", font=(UI_FONT, 8, "bold"),
+             fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 2))
+
+    token_input_frame = tk.Frame(token_frame, bg=BG_CARD)
+    token_input_frame.pack(fill="x", padx=12, pady=(0, 8))
+
+    token_var = tk.StringVar(value=config.get("game_token", ""))
+    token_entry = tk.Entry(
+        token_input_frame, textvariable=token_var, font=(MONO_FONT, 9),
+        bg=BG, fg=TEXT, insertbackground=TEXT, relief="flat",
+        highlightbackground=BORDER, highlightthickness=1,
+        show="•",
+    )
+    token_entry.pack(side="left", fill="x", expand=True, ipady=4)
+
+    def toggle_token_visibility():
+        if token_entry.cget("show") == "":
+            token_entry.configure(show="•")
+            show_btn.configure(text="Show")
+        else:
+            token_entry.configure(show="")
+            show_btn.configure(text="Hide")
+
+    def save_token():
+        t = token_var.get().strip()
+        config["game_token"] = t
+        config.setdefault("api_url", API_URL)
+        save_config(config)
+        if not t:
+            token_status_label.configure(text="No token", fg=ACCENT)
+            return
+        token_status_label.configure(text="Testing token...", fg=MUTED)
+        save_btn.configure(state="disabled")
+
+        def verify():
+            from dr2server.api_client import RXInfiniteClient
+            client = RXInfiniteClient(base_url=config.get("api_url", API_URL), api_token=t)
+            username = client.test_token()
+            if username:
+                root.after(0, lambda u=username: token_status_label.configure(
+                    text=f"\u2713 Token working \u2014 linked to {u}", fg=GREEN))
+            else:
+                root.after(0, lambda: token_status_label.configure(
+                    text="\u2717 Token invalid or server unreachable", fg=RED))
+            root.after(0, lambda: save_btn.configure(state="normal"))
+
+        threading.Thread(target=verify, daemon=True).start()
+
+    save_btn = tk.Button(
+        token_input_frame, text="Save", font=(UI_FONT, 8, "bold"),
+        bg=ACCENT, fg="#111", activebackground=ACCENT_BRIGHT, activeforeground="#111",
+        relief="flat", cursor="hand2", padx=10, pady=2,
+        command=save_token,
+    )
+    save_btn.pack(side="right", padx=(5, 0))
+
+    show_btn = tk.Button(
+        token_input_frame, text="Show", font=(UI_FONT, 8, "bold"),
+        bg=BG_ELEVATED, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
+        relief="flat", cursor="hand2", padx=10, pady=2,
+        command=toggle_token_visibility,
+    )
+    show_btn.pack(side="right", padx=(5, 0))
+
+    token_status_label = tk.Label(token_frame, text="", font=(UI_FONT, 8), fg=MUTED, bg=BG_CARD)
+    token_status_label.pack(anchor="w", padx=12, pady=(0, 6))
+
+    if config.get("game_token"):
+        token_status_label.configure(text="Token configured", fg=GREEN)
+    else:
+        token_status_label.configure(text="Get token at rxinfinite.net/dashboard", fg=MUTED)
+
+    # --- Status ---
+    status_frame = tk.Frame(main_tab, bg=BG_CARD, highlightbackground=BORDER, highlightthickness=1)
+    status_frame.pack(fill="x", padx=20, pady=5)
+
+    status_dot = tk.Label(status_frame, text="\u25cf", font=(UI_FONT, 14),
+                          fg=MUTED, bg=BG_CARD)
+    status_dot.pack(side="left", padx=(15, 5), pady=10)
+
+    status_label = tk.Label(status_frame, text="Stopped", font=(UI_FONT, 12, "bold"),
+                            fg=TEXT, bg=BG_CARD)
+    status_label.pack(side="left", pady=10)
+
+    status_detail = tk.Label(status_frame, text="", font=(UI_FONT, 9),
+                             fg=MUTED, bg=BG_CARD)
+    status_detail.pack(side="right", padx=15, pady=10)
+
+    # --- Log area ---
+    log_frame = tk.Frame(main_tab, bg=BG)
+    log_frame.pack(fill="both", expand=True, padx=20, pady=(5, 5))
+
+    log_text = tk.Text(log_frame, height=5, bg=BG, fg=MUTED,
+                       font=(MONO_FONT, 8), relief="flat", wrap="word",
+                       state="disabled", borderwidth=0)
+    log_text.pack(fill="both", expand=True)
+
+    def log(msg: str):
+        log_text.configure(state="normal")
+        log_text.insert("end", msg + "\n")
+        log_text.see("end")
+        log_text.configure(state="disabled")
+        if _LOG_FILE is not None:
+            try:
+                from datetime import datetime as _dt
+                _LOG_FILE.write(f"[GUI {_dt.now().strftime('%H:%M:%S')}] {msg}\n")
+                _LOG_FILE.flush()
+            except Exception:
+                pass
+
+    # --- Buttons ---
+    btn_frame = tk.Frame(main_tab, bg=BG)
+    btn_frame.pack(fill="x", padx=20, pady=(5, 8))
+
+    easy_setup_var = tk.BooleanVar(value=config.get("easy_setup", True))
+    easy_cb = tk.Checkbutton(
+        btn_frame, text="Easy Setup Mode (Requires Admin)",
+        variable=easy_setup_var,
+        bg=BG, fg=TEXT, activebackground=BG, activeforeground=TEXT,
+        selectcolor=BG_ELEVATED, font=(UI_FONT, 9),
+        highlightthickness=0, bd=0, anchor="w",
+    )
+    easy_cb.pack(fill="x", pady=(0, 2))
+
+    manual_link = tk.Label(
+        btn_frame, text="Manual setup instructions \u2192",
+        font=(UI_FONT, 8, "underline"),
+        fg=ACCENT, bg=BG, cursor="hand2", anchor="w",
+    )
+    manual_link.bind(
+        "<Button-1>",
+        lambda e: webbrowser.open("https://rxinfinite.net/install#manual"),
+    )
+
+    def _update_easy_setup():
+        if easy_setup_var.get():
+            manual_link.pack_forget()
+        else:
+            manual_link.pack(fill="x", pady=(0, 5), before=start_btn)
+        config["easy_setup"] = easy_setup_var.get()
+        save_config(config)
+
+    easy_cb.configure(command=_update_easy_setup)
+
+    start_btn = tk.Button(
+        btn_frame, text="START", font=(UI_FONT, 11, "bold"),
+        bg=GREEN, fg="#111", activebackground="#1a9e4a", activeforeground="#111",
+        relief="flat", cursor="hand2", padx=20, pady=10,
+    )
+    start_btn.pack(fill="x", pady=(0, 5))
+
+    # Show link below checkbox if starting unchecked
+    if not easy_setup_var.get():
+        manual_link.pack(fill="x", pady=(0, 5), before=start_btn)
+
+    stop_btn = tk.Button(
+        btn_frame, text="STOP", font=(UI_FONT, 10, "bold"),
+        bg=BG_ELEVATED, fg=MUTED, activebackground="#333", activeforeground=TEXT,
+        relief="flat", cursor="hand2", padx=20, pady=8,
+        state="disabled",
+    )
+    stop_btn.pack(fill="x")
+
+    # --- Footer ---
+    footer = tk.Frame(main_tab, bg=BG)
+    footer.pack(fill="x", padx=20, pady=(0, 12))
+
+    dash_link = tk.Label(footer, text="rxinfinite.net/dashboard", font=(UI_FONT, 8, "underline"),
+                         fg=ACCENT, bg=BG, cursor="hand2")
+    dash_link.pack(side="right")
+    dash_link.bind("<Button-1>", lambda e: webbrowser.open(DASHBOARD_URL))
+
+    # --- Streaming tab ---
+    # Overlay output folder. Defaults to ~/rxinfinite, but the user can
+    # repoint it on this tab; the choice is persisted in config.json under
+    # "streaming_output_dir" so it survives restarts.
+    DEFAULT_OVERLAY_DIR = Path.home() / "rxinfinite"
+    _saved_overlay_dir = str(config.get("streaming_output_dir") or "").strip()
+    streaming_dir_var = tk.StringVar(
+        value=_saved_overlay_dir or str(DEFAULT_OVERLAY_DIR))
+
+    def _overlay_dir() -> Path:
+        val = (streaming_dir_var.get() or "").strip()
+        return Path(val).expanduser() if val else DEFAULT_OVERLAY_DIR
+
+    stream_header = tk.Frame(streaming_tab, bg=BG)
+    stream_header.pack(fill="x", padx=20, pady=(20, 5))
+    tk.Label(stream_header, text="OBS / SimHub", font=(UI_FONT, 16, "bold"),
+             fg=ACCENT, bg=BG).pack(side="left")
+    tk.Label(stream_header, text="Live overlay text files", font=(UI_FONT, 9),
+             fg=MUTED, bg=BG).pack(side="left", padx=(10, 0), pady=(5, 0))
+
+    stream_card = tk.Frame(streaming_tab, bg=BG_CARD,
+                           highlightbackground=BORDER, highlightthickness=1)
+    stream_card.pack(fill="x", padx=20, pady=(10, 5))
+
+    streaming_enabled_var = tk.BooleanVar(
+        value=bool(config.get("streaming_enabled", False)))
+    enable_cb = tk.Checkbutton(
+        stream_card, text="Generate overlay files while server is running",
+        variable=streaming_enabled_var,
+        bg=BG_CARD, fg=TEXT, activebackground=BG_CARD, activeforeground=TEXT,
+        selectcolor=BG_ELEVATED, font=(UI_FONT, 10),
+        highlightthickness=0, bd=0, anchor="w",
+    )
+    enable_cb.pack(fill="x", padx=12, pady=(10, 4))
+
+    interval_row = tk.Frame(stream_card, bg=BG_CARD)
+    interval_row.pack(fill="x", padx=12, pady=(2, 8))
+    tk.Label(interval_row, text="Update interval (seconds, min 2):",
+             font=(UI_FONT, 9), fg=TEXT, bg=BG_CARD).pack(side="left")
+    streaming_interval_var = tk.IntVar(
+        value=max(2, int(config.get("streaming_interval_seconds", 5) or 5)))
+    interval_spin = tk.Spinbox(
+        interval_row, from_=2, to=60, increment=1, width=5,
+        textvariable=streaming_interval_var,
+        font=(MONO_FONT, 10), bg=BG, fg=TEXT, insertbackground=TEXT,
+        relief="flat", highlightbackground=BORDER, highlightthickness=1,
+        buttonbackground=BG_ELEVATED,
+    )
+    interval_spin.pack(side="left", padx=(8, 0), ipady=2)
+
+    # Exit behavior: what happens to the overlay files when the server stops.
+    # "clear" blanks them in place (OBS flags missing files as an error on
+    # startup, see issue #36), "delete" removes them. Persisted in config.json
+    # under "streaming_exit_behavior"; default is "clear".
+    from dr2server.streaming import DEFAULT_EXIT_BEHAVIOR, EXIT_BEHAVIOR_DELETE
+
+    _EXIT_BEHAVIOR_LABELS = {
+        DEFAULT_EXIT_BEHAVIOR: "Clear files (leave them blank)",
+        EXIT_BEHAVIOR_DELETE: "Delete files",
+    }
+    _EXIT_LABEL_TO_VALUE = {v: k for k, v in _EXIT_BEHAVIOR_LABELS.items()}
+    _saved_exit = str(config.get("streaming_exit_behavior") or "").strip()
+    if _saved_exit not in _EXIT_BEHAVIOR_LABELS:
+        _saved_exit = DEFAULT_EXIT_BEHAVIOR
+    streaming_exit_var = tk.StringVar(value=_EXIT_BEHAVIOR_LABELS[_saved_exit])
+
+    def _exit_behavior() -> str:
+        return _EXIT_LABEL_TO_VALUE.get(
+            streaming_exit_var.get(), DEFAULT_EXIT_BEHAVIOR)
+
+    exit_row = tk.Frame(stream_card, bg=BG_CARD)
+    exit_row.pack(fill="x", padx=12, pady=(0, 10))
+    tk.Label(exit_row, text="When the server stops:",
+             font=(UI_FONT, 9), fg=TEXT, bg=BG_CARD).pack(side="left")
+    exit_menu = tk.OptionMenu(
+        exit_row, streaming_exit_var, *_EXIT_BEHAVIOR_LABELS.values())
+    exit_menu.configure(
+        font=(UI_FONT, 9), bg=BG_ELEVATED, fg=TEXT,
+        activebackground=BORDER, activeforeground=TEXT,
+        relief="flat", cursor="hand2",
+        highlightthickness=1, highlightbackground=BORDER,
+    )
+    exit_menu["menu"].configure(
+        font=(UI_FONT, 9), bg=BG_ELEVATED, fg=TEXT,
+        activebackground=ACCENT, activeforeground="#111",
+    )
+    exit_menu.pack(side="left", padx=(8, 0))
+
+    path_card = tk.Frame(streaming_tab, bg=BG_CARD,
+                         highlightbackground=BORDER, highlightthickness=1)
+    path_card.pack(fill="x", padx=20, pady=5)
+    tk.Label(path_card, text="OUTPUT FOLDER", font=(UI_FONT, 8, "bold"),
+             fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 2))
+    path_row = tk.Frame(path_card, bg=BG_CARD)
+    path_row.pack(fill="x", padx=12, pady=(0, 8))
+    tk.Label(path_row, textvariable=streaming_dir_var, font=(MONO_FONT, 9),
+             fg=TEXT, bg=BG_CARD, anchor="w", justify="left",
+             wraplength=300).pack(side="left")
+
+    def _open_overlay_dir():
+        out_dir = _overlay_dir()
+        try:
+            out_dir.mkdir(parents=True, exist_ok=True)
+            if IS_WIN:
+                os.startfile(str(out_dir))  # type: ignore[attr-defined]
+            else:
+                subprocess.Popen(["xdg-open", str(out_dir)])
+        except Exception as exc:
+            log(f"Could not open overlay folder: {exc}")
+
+    def _choose_overlay_dir():
+        from tkinter import filedialog
+        chosen = filedialog.askdirectory(
+            parent=streaming_tab,
+            initialdir=str(_overlay_dir()),
+            title="Choose overlay output folder",
+            mustexist=False,
+        )
+        if chosen:
+            # Setting the var fires the trace -> _apply_streaming_state, which
+            # persists the new path and repoints a running writer.
+            streaming_dir_var.set(str(Path(chosen)))
+
+    tk.Button(
+        path_row, text="Open folder", font=(UI_FONT, 8, "bold"),
+        bg=ACCENT, fg="#111", activebackground=ACCENT_BRIGHT, activeforeground="#111",
+        relief="flat", cursor="hand2", padx=10, pady=2,
+        command=_open_overlay_dir,
+    ).pack(side="right")
+    tk.Button(
+        path_row, text="Change...", font=(UI_FONT, 8, "bold"),
+        bg=BG_ELEVATED, fg=TEXT, activebackground=BORDER, activeforeground=TEXT,
+        relief="flat", cursor="hand2", padx=10, pady=2,
+        command=_choose_overlay_dir,
+    ).pack(side="right", padx=(0, 6))
+
+    from dr2server.streaming import FILES as STREAMING_FILES
+
+    files_card = tk.Frame(streaming_tab, bg=BG_CARD,
+                          highlightbackground=BORDER, highlightthickness=1)
+    files_card.pack(fill="x", padx=20, pady=5)
+    tk.Label(files_card, text="FILES GENERATED", font=(UI_FONT, 8, "bold"),
+             fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 4))
+    _file_rows = [
+        ("club",        "Club name you're racing in"),
+        ("club_owner",  "Creator of the current club"),
+        ("members",     "Member count, e.g. '123 members'"),
+        ("stages",      "Stage count, e.g. '12 Stages'"),
+        ("location",    "Event location, e.g. 'Spain'"),
+        ("car",         "Selected vehicle name"),
+        ("car_class",   "Event class, e.g. 'Group B'"),
+        ("leaderboard", "Top 10 leaderboard (polls API)"),
+    ]
+    saved_files_cfg = config.get("streaming_files") or {}
+    streaming_file_vars: dict = {}
+    for key, desc in _file_rows:
+        var = tk.BooleanVar(value=bool(saved_files_cfg.get(key, True)))
+        streaming_file_vars[key] = var
+        row = tk.Frame(files_card, bg=BG_CARD)
+        row.pack(fill="x", padx=12, pady=1)
+        tk.Checkbutton(
+            row, variable=var,
+            bg=BG_CARD, fg=TEXT,
+            activebackground=BG_CARD, activeforeground=TEXT,
+            selectcolor=BG_ELEVATED, highlightthickness=0, bd=0,
+        ).pack(side="left")
+        tk.Label(row, text=STREAMING_FILES[key], font=(MONO_FONT, 9),
+                 fg=TEXT, bg=BG_CARD, width=22, anchor="w").pack(side="left")
+        tk.Label(row, text=desc, font=(UI_FONT, 8),
+                 fg=MUTED, bg=BG_CARD, anchor="w").pack(side="left")
+    tk.Label(files_card,
+             text="When the server stops these files are cleared (left blank) or "
+                  "deleted, per the setting above, so overlays go blank "
+                  "off-stream. Use a dedicated folder.",
+             font=(UI_FONT, 8), fg=MUTED, bg=BG_CARD,
+             wraplength=460, justify="left", anchor="w").pack(
+        fill="x", padx=12, pady=(2, 6))
+
+    streaming_status_label = tk.Label(
+        streaming_tab,
+        text=("Writing every {}s".format(
+                  max(2, int(config.get("streaming_interval_seconds", 5) or 5)))
+              if config.get("streaming_enabled", False) else "Idle"),
+        font=(UI_FONT, 9), fg=MUTED, bg=BG, anchor="w",
+    )
+    streaming_status_label.pack(fill="x", padx=20, pady=(8, 12))
+
+    def _enabled_files_set() -> set:
+        return {k for k, v in streaming_file_vars.items() if v.get()}
+
+    def _apply_streaming_state(*_):
+        enabled = bool(streaming_enabled_var.get())
+        try:
+            interval = max(2, int(streaming_interval_var.get() or 5))
+        except (tk.TclError, ValueError):
+            interval = 5
+        files_enabled = _enabled_files_set()
+        out_dir = _overlay_dir()
+        exit_behavior = _exit_behavior()
+        config["streaming_enabled"] = enabled
+        config["streaming_interval_seconds"] = interval
+        config["streaming_output_dir"] = str(out_dir)
+        config["streaming_exit_behavior"] = exit_behavior
+        config["streaming_files"] = {k: (k in files_enabled) for k in streaming_file_vars}
+        save_config(config)
+        inst = streaming_writer["instance"]
+        if inst is not None:
+            inst.set_enabled(files_enabled)
+            inst.set_exit_behavior(exit_behavior)
+        if enabled:
+            if inst is not None:
+                if inst.is_running():
+                    inst.set_interval(interval)
+                    inst.set_output_dir(out_dir)
+                else:
+                    inst.start(interval=interval, output_dir=out_dir)
+                streaming_status_label.configure(
+                    text=f"Writing every {interval}s ({len(files_enabled)} files)",
+                    fg=GREEN)
+            else:
+                streaming_status_label.configure(
+                    text=f"Enabled, will start with server (every {interval}s)",
+                    fg=MUTED)
+        else:
+            if inst is not None and inst.is_running():
+                inst.stop()
+            streaming_status_label.configure(text="Idle", fg=MUTED)
+
+    streaming_enabled_var.trace_add("write", _apply_streaming_state)
+    streaming_interval_var.trace_add("write", _apply_streaming_state)
+    streaming_dir_var.trace_add("write", _apply_streaming_state)
+    streaming_exit_var.trace_add("write", _apply_streaming_state)
+    for _var in streaming_file_vars.values():
+        _var.trace_add("write", _apply_streaming_state)
+
+    # --- Advanced tab ---
+    def _reveal_in_explorer(path: Path) -> None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if IS_WIN and path.is_file():
+                subprocess.Popen(["explorer", "/select,", str(path)])
+            elif IS_WIN:
+                path.mkdir(parents=True, exist_ok=True)
+                os.startfile(str(path))  # type: ignore[attr-defined]
+            else:
+                target = str(path if path.is_dir() else path.parent)
+                subprocess.Popen(["xdg-open", target])
+        except Exception as exc:
+            log(f"Could not open {path}: {exc}")
+
+    adv_header = tk.Frame(advanced_tab, bg=BG)
+    adv_header.pack(fill="x", padx=20, pady=(20, 5))
+    tk.Label(adv_header, text="Logs", font=(UI_FONT, 16, "bold"),
+             fg=ACCENT, bg=BG).pack(side="left")
+    tk.Label(adv_header, text="Diagnostic file locations", font=(UI_FONT, 9),
+             fg=MUTED, bg=BG).pack(side="left", padx=(10, 0), pady=(5, 0))
+
+    def _path_card(parent, label: str, path: Path, button_text: str) -> None:
+        card = tk.Frame(parent, bg=BG_CARD,
+                        highlightbackground=BORDER, highlightthickness=1)
+        card.pack(fill="x", padx=20, pady=5)
+        tk.Label(card, text=label, font=(UI_FONT, 8, "bold"),
+                 fg=MUTED, bg=BG_CARD).pack(anchor="w", padx=12, pady=(8, 2))
+        tk.Label(card, text=str(path), font=(MONO_FONT, 9),
+                 fg=TEXT, bg=BG_CARD, anchor="w", wraplength=380,
+                 justify="left").pack(anchor="w", fill="x", padx=12)
+        tk.Button(
+            card, text=button_text, font=(UI_FONT, 8, "bold"),
+            bg=ACCENT, fg="#111", activebackground=ACCENT_BRIGHT, activeforeground="#111",
+            relief="flat", cursor="hand2", padx=10, pady=2,
+            command=lambda p=path: _reveal_in_explorer(p),
+        ).pack(anchor="w", padx=12, pady=(4, 8))
+
+    _path_card(advanced_tab, "DEBUG LOG", LOG_PATH, "Show in folder")
+    _path_card(advanced_tab, "CAPTURES DIR", CAPTURES_DIR, "Open folder")
+    _path_card(advanced_tab, "CONFIG", CONFIG_PATH, "Show in folder")
+
+    verbose_logging_var = tk.BooleanVar(
+        value=bool(config.get("verbose_logging", False)))
+    verbose_card = tk.Frame(advanced_tab, bg=BG_CARD,
+                            highlightbackground=BORDER, highlightthickness=1)
+    verbose_card.pack(fill="x", padx=20, pady=5)
+    tk.Checkbutton(
+        verbose_card,
+        text="Verbose logging (for support)",
+        variable=verbose_logging_var,
+        bg=BG_CARD, fg=TEXT, activebackground=BG_CARD, activeforeground=TEXT,
+        selectcolor=BG_ELEVATED, font=(UI_FONT, 10),
+        highlightthickness=0, bd=0, anchor="w",
+    ).pack(fill="x", padx=12, pady=(8, 2))
+    tk.Label(
+        verbose_card,
+        text=("Logs every streaming tick and dispatcher state change. "
+              "Leave off unless debugging."),
+        font=(UI_FONT, 8), fg=MUTED, bg=BG_CARD, wraplength=380,
+        justify="left", anchor="w",
+    ).pack(fill="x", padx=12, pady=(0, 8))
+
+    def _apply_verbose_logging(*_):
+        val = bool(verbose_logging_var.get())
+        config["verbose_logging"] = val
+        save_config(config)
+        disp = dispatcher_holder.get("instance")
+        if disp is not None:
+            disp.verbose_logging = val
+
+    verbose_logging_var.trace_add("write", _apply_verbose_logging)
+
+    # --- Server control ---
+    def set_status(running: bool, detail: str = ""):
+        if running:
+            status_dot.configure(fg=GREEN)
+            status_label.configure(text="Running")
+            status_detail.configure(text=detail or "Launch DR2 to play")
+            start_btn.configure(state="disabled", bg=BG_ELEVATED)
+            stop_btn.configure(state="normal", bg=RED, fg=TEXT)
+        else:
+            status_dot.configure(fg=MUTED)
+            status_label.configure(text="Stopped")
+            status_detail.configure(text=detail)
+            start_btn.configure(state="normal", bg=GREEN)
+            stop_btn.configure(state="disabled", bg=BG_ELEVATED, fg=MUTED)
+
+    def server_worker():
+        """Run the game server in a background thread."""
+        try:
+            # Import and configure server
+            cert = config.get("cert_path", str(CERT_PATH))
+            key = config.get("key_path", str(KEY_PATH))
+            api_url = config.get("api_url", API_URL)
+            api_token = config.get("game_token")
+            data_root = str(_data_dir())
+
+            sys.argv = [sys.argv[0],
+                        "--ssl-cert", cert,
+                        "--ssl-key", key,
+                        "--data-dir", data_root,
+                        "--capture-dir", str(CAPTURES_DIR)]
+            if api_url:
+                sys.argv += ["--api-url", api_url]
+            if api_token:
+                sys.argv += ["--api-token", api_token]
+
+            from dr2server.httpd import build_arg_parser, App, create_server
+            import ssl
+            import time
+
+            args = build_arg_parser().parse_args()
+            from dr2server.api_client import RXInfiniteClient
+            api_client = None
+            if args.api_url:
+                api_client = RXInfiniteClient(
+                    base_url=args.api_url,
+                    api_token=getattr(args, 'api_token', None),
+                )
+
+            app = App(
+                data_root=Path(args.data_dir),
+                capture_root=Path(args.capture_dir),
+                api_url=args.api_url,
+            )
+            if api_client:
+                app.dispatcher.api_client = api_client
+            app.dispatcher.verbose_logging = bool(verbose_logging_var.get())
+            dispatcher_holder["instance"] = app.dispatcher
+
+            from dr2server.streaming import StreamingWriter
+            streaming_writer["instance"] = StreamingWriter(
+                app.dispatcher,
+                logger=lambda m: root.after(0, lambda msg=m: log(msg)),
+                verbose=lambda: bool(verbose_logging_var.get()),
+            )
+            streaming_writer["instance"].set_enabled(_enabled_files_set())
+            streaming_writer["instance"].set_exit_behavior(
+                str(config.get("streaming_exit_behavior") or "clear"))
+            if config.get("streaming_enabled", False):
+                _si = max(2, int(config.get("streaming_interval_seconds", 5) or 5))
+                _odir = _overlay_dir()
+                streaming_writer["instance"].start(
+                    interval=_si, output_dir=_odir,
+                )
+                root.after(0, lambda iv=_si, d=_odir: log(
+                    f"Streaming writer started, {d} every {iv}s"))
+
+            servers = []
+            http_server = create_server(args.host, args.port, app)
+            servers.append(http_server)
+
+            if args.ssl_cert and args.ssl_key:
+                ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                ssl_context.load_cert_chain(certfile=args.ssl_cert, keyfile=args.ssl_key)
+                https_server = create_server(args.host, args.https_port, app, ssl_context=ssl_context)
+                servers.append(https_server)
+
+            for s in servers:
+                threading.Thread(target=s.serve_forever, daemon=True).start()
+
+            server_running.set()
+            root.after(0, lambda: set_status(True))
+            root.after(0, lambda: log("Server listening on HTTPS :443 and HTTP :8080"))
+
+            # Wait until shutdown is requested
+            while not shutdown_flag.is_set():
+                shutdown_flag.wait(timeout=1.0)
+
+            if streaming_writer["instance"] is not None:
+                _writer = streaming_writer["instance"]
+                _writer.stop()
+                # Clear overlay files on shutdown so streamers' OBS / SimHub
+                # text sources go blank when RXInfinite isn't running, rather
+                # than holding the last race's values. Blanks or deletes the
+                # files per the Streaming tab's exit-behavior setting.
+                _writer.clear_files()
+                streaming_writer["instance"] = None
+
+            for s in servers:
+                s.shutdown()
+                s.server_close()
+
+        except Exception:
+            import traceback
+            err = traceback.format_exc()
+            root.after(0, lambda e=err: log(f"Server error:\n{e}"))
+        finally:
+            server_running.clear()
+            root.after(0, lambda: set_status(False))
+
+    def on_start():
+        nonlocal config, server_thread
+        config = load_config()
+        start_btn.configure(state="disabled")
+        log("Starting RXInfinite...")
+
+        def setup_and_start():
+            nonlocal config
+            try:
+                easy_setup = easy_setup_var.get()
+
+                # Generate cert if missing (needed in both modes — server loads it).
+                if not cert_exists():
+                    root.after(0, lambda: log("Generating TLS certificate..."))
+                    generate_cert()
+                    config["cert_path"] = str(CERT_PATH)
+                    config["key_path"] = str(KEY_PATH)
+                    save_config(config)
+
+                if not easy_setup:
+                    root.after(0, lambda: log(
+                        "Easy Setup off - assuming hosts & cert trust are configured manually. "
+                        "See rxinfinite.net/install#manual"))
+                elif IS_WIN:
+                    if not hosts_configured():
+                        root.after(0, lambda: log("Setting up hosts & cert trust (admin required)..."))
+                        try:
+                            _windows_elevate_admin_helper("start")
+                        except subprocess.TimeoutExpired:
+                            root.after(0, lambda: log(
+                                "WARNING: UAC prompt timed out after 5 minutes."))
+
+                        if hosts_configured():
+                            root.after(0, lambda: log("Hosts configured, cert trusted."))
+                        else:
+                            root.after(0, lambda: log("WARNING: Could not configure hosts. Run as admin?"))
+                else:
+                    # Linux: one pkexec runs setcap (port 443) + writes /etc/hosts.
+                    target_bin = _elevation_target_binary()
+                    needs_setcap = not has_port_capability(target_bin)
+                    needs_hosts = not hosts_configured()
+                    if needs_setcap or needs_hosts:
+                        helper_python = _system_python_for_helper()
+                        if helper_python is None:
+                            root.after(0, lambda: log(
+                                "WARNING: no python3 on PATH. Install python3 or run setcap "
+                                "and the /etc/hosts edit manually - see install docs."))
+                        else:
+                            steps = []
+                            if needs_setcap:
+                                steps.append("port-443 capability")
+                            if needs_hosts:
+                                steps.append("/etc/hosts")
+                            root.after(0, lambda s=", ".join(steps): log(
+                                f"Authentication required to set up {s}..."))
+                            helper = RXINFINITE_DIR / "_admin_start.py"
+                            helper.write_text(_linux_admin_start_script(target_bin), encoding="utf-8")
+                            try:
+                                result = subprocess.run(
+                                    ["pkexec", str(helper_python), str(helper)],
+                                    capture_output=True, text=True,
+                                    timeout=ELEVATION_TIMEOUT_SECONDS,
+                                )
+                            except subprocess.TimeoutExpired:
+                                helper.unlink(missing_ok=True)
+                                root.after(0, lambda: log(
+                                    "WARNING: polkit prompt timed out after 5 minutes."))
+                                result = None
+                            if result is not None:
+                                helper.unlink(missing_ok=True)
+                                out = (result.stdout or "").strip()
+                                if result.returncode != 0:
+                                    err = (result.stderr or out or "no output").strip().splitlines()[-1:] or [""]
+                                    root.after(0, lambda e=err[0]: log(
+                                        f"WARNING: elevated setup failed ({e}). "
+                                        "You can configure /etc/hosts and setcap manually - see install docs."))
+                                else:
+                                    if out:
+                                        root.after(0, lambda o=out: log(o))
+                                    root.after(0, lambda: log("Hosts and port-443 capability configured."))
+                                    # Re-exec if we just acquired the cap; the
+                                    # current process can't use it.
+                                    if needs_setcap and has_port_capability(target_bin):
+                                        root.after(0, lambda: log(
+                                            "Relaunching RXInfinite to apply port-443 capability..."))
+                                        root.after(1500, _relaunch_with_auto_start)
+                                        return
+
+                    # Cert into DR2 prefix (no elevation; user owns the prefix).
+                    root.after(0, lambda: log("Installing TLS cert into DR2 Proton prefix..."))
+                    ok, msg = install_cert_into_dr2_prefix(CERT_PATH)
+                    if ok:
+                        root.after(0, lambda m=msg: log(m))
+                    else:
+                        root.after(0, lambda m=msg: log(f"Cert install: {m}"))
+
+                # Check for token
+                if not config.get("game_token"):
+                    root.after(0, lambda: log("No game token. Get one at rxinfinite.net/dashboard"))
+                    webbrowser.open(DASHBOARD_URL)
+                    # We'll still start the server - it works without token (local mode)
+
+                # Start server
+                shutdown_flag.clear()
+                server_thread = threading.Thread(target=server_worker, daemon=True)
+                server_thread.start()
+
+            except Exception as exc:
+                root.after(0, lambda: log(f"Setup error: {exc}"))
+                root.after(0, lambda: set_status(False))
+
+        threading.Thread(target=setup_and_start, daemon=True).start()
+
+    def on_stop():
+        stop_btn.configure(state="disabled")
+        log("Stopping server...")
+        shutdown_flag.set()
+
+        def cleanup():
+            # Wait for server to stop
+            if server_thread:
+                server_thread.join(timeout=5)
+
+            if not easy_setup_var.get():
+                root.after(0, lambda: log(
+                    "Easy Setup off - leaving hosts unchanged. Remove them manually if desired."))
+                root.after(0, lambda: set_status(False, "Stopped"))
+                return
+
+            # Remove hosts (needs elevation)
+            root.after(0, lambda: log("Removing hosts entries (admin required)..."))
+            try:
+                if IS_WIN:
+                    _windows_elevate_admin_helper("stop")
+                else:
+                    helper_python = _system_python_for_helper()
+                    if helper_python is None:
+                        root.after(0, lambda: log(
+                            "WARNING: no python3 on PATH; cannot remove hosts entries."))
+                    else:
+                        helper = RXINFINITE_DIR / "_admin_stop.py"
+                        helper.write_text(_linux_admin_stop_script(), encoding="utf-8")
+                        try:
+                            subprocess.run(
+                                ["pkexec", str(helper_python), str(helper)],
+                                capture_output=True, text=True,
+                                timeout=ELEVATION_TIMEOUT_SECONDS,
+                            )
+                        finally:
+                            helper.unlink(missing_ok=True)
+            except subprocess.TimeoutExpired:
+                root.after(0, lambda: log(
+                    "WARNING: elevation prompt timed out after 5 minutes."))
+
+            root.after(0, lambda: log("Stopped. Game will use RaceNet servers now."))
+            root.after(0, lambda: set_status(False, "Hosts restored"))
+
+        threading.Thread(target=cleanup, daemon=True).start()
+
+    start_btn.configure(command=on_start)
+    stop_btn.configure(command=on_stop)
+
+    # If we were just relaunched after a successful setcap, click START
+    # automatically so the user doesn't have to.
+    if os.environ.pop("RXINFINITE_AUTO_START", "") == "1":
+        root.after(800, on_start)
+
+    def on_close():
+        # Quitting with the server up leaves the hosts redirect in place, so
+        # the game keeps trying to reach the RXInfinite Proxy and can't talk
+        # to RaceNet.
+        # Only Stop restores the hosts file (it's the elevated path), so warn
+        # and default to keeping the window open.
+        leftover_hosts = easy_setup_var.get() and hosts_configured()
+        if server_running.is_set() or leftover_hosts:
+            if server_running.is_set():
+                lead = ("The server is still running, and your hosts file still points the game "
+                        "at the RXInfinite Proxy.")
+            else:
+                lead = "Your hosts file still points the game at the RXInfinite Proxy."
+            proceed = messagebox.askyesno(
+                "RXInfinite",
+                f"{lead}\n\n"
+                "Click Stop first - that restores your hosts file so DiRT Rally 2.0 can reach "
+                "RaceNet again.\n\n"
+                "If you exit now, the game won't connect until you reopen RXInfinite and press "
+                "Stop (or edit your hosts file by hand).\n\n"
+                "Exit anyway?",
+                icon="warning",
+                default="no",
+            )
+            if not proceed:
+                return
+            shutdown_flag.set()
+            if server_thread:
+                server_thread.join(timeout=3)
+        root.destroy()
+
+    root.protocol("WM_DELETE_WINDOW", on_close)
+    root.mainloop()
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+if __name__ == "__main__":
+    _setup_file_logging()
+    # Elevated-helper entry: when re-launched via UAC/pkexec with
+    # `--admin-helper <op>`, do the privileged work and exit before
+    # importing/initializing any Tk machinery. The elevated child must
+    # never show a GUI — otherwise users see a phantom second window
+    # and the privileged work silently never happens (the original Win11
+    # symptom).
+    if len(sys.argv) >= 3 and sys.argv[1] == "--admin-helper":
+        sys.exit(_run_admin_helper(sys.argv[2]))
+
+    run_gui()
