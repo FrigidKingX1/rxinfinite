@@ -299,6 +299,7 @@ class RpcDispatcher:
           2. Otherwise, if api_client is configured, fetch from rxinfinite.net.
           3. Otherwise, return the hardcoded local-dev fallback.
         """
+        print("[CLUBS] Game requested Clubs.GetClubs")
         import os
         debug_path = os.environ.get("DR2_DEBUG_CLUBS_FILE")
         if debug_path:
@@ -419,6 +420,7 @@ class RpcDispatcher:
         assert self.api_client is not None
         try:
             data = self.api_client.get_clubs()
+            print(f"[CLUBS] API returned {len(data.get('clubs',[]))} clubs, {len(data.get('events',[]))} events")
         except Exception as exc:
             print(f"[CLUBS] api_client.get_clubs() raised: {exc}")
             return None
@@ -433,6 +435,7 @@ class RpcDispatcher:
                   f"{len(web_clubs)} clubs, {len(web_events)} events")
 
         if not web_clubs and not web_events:
+            print("[CLUBS] No clubs or events from API — returning empty")
             return None
 
         # Index events by their club_id for quick lookup
@@ -564,7 +567,10 @@ class RpcDispatcher:
             )
 
         if not clubs_egonet:
+            print("[CLUBS] No clubs in converted egonet output — returning empty")
             return None
+
+        print(f"[CLUBS] Serving {len(clubs_egonet)} clubs, {len(challenges_egonet)} challenges")
 
         progress_egonet = multi_progress + self._build_user_progress(
             [e for e in web_events if e.get("id") not in multi_event_ids]

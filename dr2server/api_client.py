@@ -150,15 +150,20 @@ class RXInfiniteClient:
     def _get(self, path: str) -> Optional[Dict[str, Any]]:
         url = f"{self.base_url}{path}"
         try:
+            print(f"[API] GET {url}")
             req = urllib.request.Request(url, headers=self._auth_headers())
             with urllib.request.urlopen(req, timeout=10) as resp:
                 raw = resp.read()
+            print(f"[API] GET {url} -> {resp.status}")
             return json.loads(raw)
         except urllib.error.HTTPError as exc:
+            print(f"[API] GET {url} -> HTTP {exc.code}: {exc.read().decode(errors='replace')[:200]}")
             log.error("GET %s -> HTTP %s", url, exc.code)
         except urllib.error.URLError as exc:
+            print(f"[API] GET {url} -> network error: {exc.reason}")
             log.error("GET %s -> network error: %s", url, exc.reason)
         except Exception as exc:
+            print(f"[API] GET {url} -> unexpected error: {exc}")
             log.error("GET %s -> unexpected error: %s", url, exc)
         return None
 
