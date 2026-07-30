@@ -203,7 +203,7 @@ def get_all_users() -> list[Any]:
 
 def create_user(username: str, email: str, password: str, display_name: str | None = None,
                 country: str = '', bio: str = '',
-                email_verified: bool = False) -> dict[str, Any]:
+                email_verified: bool = True) -> dict[str, Any]:
     salt = secrets.token_bytes(16)
     dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 120_000)
     verify_token = secrets.token_urlsafe(32) if not email_verified else None
@@ -594,10 +594,6 @@ def verified_required(f: Callable[..., Any]) -> Callable[..., Any]:
     @wraps(f)
     @login_required
     def wrapper(*args: Any, **kwargs: Any) -> Any:
-        user = current_user()
-        if not user or not user.get('email_verified'):
-            flash('Please verify your email address first.', 'warning')
-            return redirect(url_for('verify_prompt'))
         return f(*args, **kwargs)
     return wrapper
 
@@ -1591,57 +1587,13 @@ def register_post() -> Response:
         return redirect(url_for('register'))
 
     user = create_user(username, email, password, country=country)
-    if SMTP_HOST:
-        send_verification_email(user)
-        flash('Account created! Check your email to verify your address.', 'success')
-        return redirect(url_for('verify_prompt'))
-    else:
-        user['email_verified'] = True
-        user['verify_token'] = None
-        save_user(user)
-        flash('Account created! (SMTP not configured — email auto-verified)', 'success')
-        return redirect(url_for('dashboard'))
-
-
-@app.route('/verify/resend', methods=['POST'])
-@login_required
-def resend_verification() -> Response:
-    user = current_user()
-    assert user is not None
-    if user.get('email_verified'):
-        return redirect(url_for('dashboard'))
-    if not user.get('verify_token'):
-        user['verify_token'] = secrets.token_urlsafe(32)
-        save_user(user)
-    send_verification_email(user)
-    flash('Verification email sent.', 'success')
-    return redirect(url_for('verify_prompt'))
-
-
-@app.route('/verify/pending')
-@login_required
-def verify_prompt() -> str | Response:
-    user = current_user()
-    assert user is not None
-    if user.get('email_verified'):
-        return redirect(url_for('dashboard'))
-    return render_template('verify_email.html', user=user)
+    flash('Account created! Welcome to RXInfinite.', 'success')
+    return redirect(url_for('dashboard'))
 
 
 @app.route('/verify/<token>')
 def verify_email(token: str) -> Response:
-    if not token or not _SAFE_ID_RE.match(token.replace('-', '').replace('_', '')):
-        abort(400)
-    for u in get_all_users():
-        if u.get('verify_token') == token:
-            u['email_verified'] = True
-            u['verify_token'] = None
-            save_user(u)
-            session['username'] = u['username']
-            flash('Email verified! Welcome to RXInfinite.', 'success')
-            return redirect(url_for('dashboard'))
-    flash('Invalid or expired verification link.', 'error')
-    return redirect(url_for('login'))
+    return redirect(url_for('dashboard'))
 
 
 @app.route('/forgot', methods=['GET'])
@@ -1663,12 +1615,6 @@ def forgot_password_post() -> Response:
     if not user:
         log.info('No user found for email=%s', email)
         return redirect(url_for('forgot_password'))
-
-    # If the user never verified their email, resend verification too
-    if not user.get('email_verified'):
-        if not user.get('verify_token'):
-            user['verify_token'] = secrets.token_urlsafe(32)
-        send_verification_email(user)
 
     user['reset_token'] = secrets.token_urlsafe(32)
     user['reset_token_expires'] = (datetime.now() + timedelta(hours=1)).isoformat()
@@ -2679,9 +2625,6 @@ def join_via_invite_link(club_id: str, token: str) -> Any:
     if not user:
         flash('Please sign in to accept the invite.', 'warning')
         return redirect(url_for('login'))
-    if not user.get('email_verified'):
-        flash('Please verify your email before joining clubs.', 'warning')
-        return redirect(url_for('verify_prompt'))
     path = _club_path(club_id)
     joined = False
     club_name = ''
