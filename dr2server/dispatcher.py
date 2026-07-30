@@ -662,14 +662,21 @@ class RpcDispatcher:
                   f"('{loc_name}') in event {wevt.get('id')} #{ei} — skipping")
             return None
         try:
-            discipline_id = 2 if Location(location_id).discipline == "rallycross" else 1
+            is_rallycross = Location(location_id).discipline == "rallycross"
+            discipline_id = 2 if is_rallycross else 1
         except (ValueError, AttributeError):
+            is_rallycross = False
             discipline_id = 1
+        stages = self._stages_for_subevent(ev, chal_id, ei, track_ids)
+        if is_rallycross:
+            for s in stages:
+                s.stage_type = 1
+                s.number_laps = 6
         return Event(
             event_id=chal_id + ei * 10_000_000,
             location_id=location_id,
             discipline_id=discipline_id,
-            stages=self._stages_for_subevent(ev, chal_id, ei, track_ids),
+            stages=stages,
             leaderboard_id=chal_id + 900000 + ei * 10_000_000,
         )
 
