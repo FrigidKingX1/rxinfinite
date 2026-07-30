@@ -30,6 +30,15 @@
                     <span class="countdown-label">Ends in</span>
                     <span class="countdown-value mono">{{ event.end_time | countdown }}</span>
                 </div>
+                {% if current_user and club and current_user.username == club.created_by %}
+                <form method="post" action="/events/{{ event.id }}/delete"
+                      onsubmit="return confirm('Delete championship \"{{ event.name }}\" and all its results? This cannot be undone.')"
+                      style="margin-top:.75rem; text-align:right;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn btn-ghost btn-sm"
+                            style="color:var(--red, #EF4444);">Delete Championship</button>
+                </form>
+                {% endif %}
             </div>
         </div>
     </div>

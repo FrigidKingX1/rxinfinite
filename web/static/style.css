@@ -1749,6 +1749,13 @@ th.lb-setup, td.lb-setup { width: 120px; text-align: right; }
     gap: 2px;
 }
 
+.event-row-wrap {
+    display: flex;
+    align-items: center;
+    gap: .25rem;
+}
+.event-row-wrap .event-row { flex: 1; min-width: 0; }
+
 .event-row {
     display: flex;
     align-items: center;

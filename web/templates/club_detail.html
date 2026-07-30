@@ -25,6 +25,12 @@
                             onclick="document.getElementById('editClub').classList.toggle('hidden')">
                         Edit Club
                     </button>
+                    <form method="post" action="/clubs/{{ club.id }}/delete"
+                          onsubmit="return confirm('Delete this club and ALL its events? This cannot be undone.')"
+                          style="margin:0;">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn btn-ghost btn-sm" style="color:var(--red, #EF4444);">Delete Club</button>
+                    </form>
                 </div>
                 {% elif is_member %}
                 <form method="post" action="/clubs/{{ club.id }}/leave">
@@ -197,12 +203,23 @@
                 <div class="event-list-compact">
                     {% for event in events %}
                     {% set n_rallies = (event.events | length) if event.events else 1 %}
-                    <a href="/events/{{ event.id }}" class="event-row">
-                        <span class="event-badge badge-{{ event.type }}">{{ event.type[:1] | upper }}</span>
-                        <span class="event-row-name">{{ event.name }}</span>
-                        <span class="event-row-meta text-muted">{{ n_rallies }} {{ 'rally' if n_rallies == 1 else 'rallies' }} &middot; {{ event.car_class }}{% if event.max_entrants and event.max_entrants > 0 %} &middot; Max {{ event.max_entrants }}{% endif %}</span>
-                        <span class="event-row-countdown mono">{{ event.end_time | countdown }}</span>
-                    </a>
+                    <div class="event-row-wrap">
+                        <a href="/events/{{ event.id }}" class="event-row">
+                            <span class="event-badge badge-{{ event.type }}">{{ event.type[:1] | upper }}</span>
+                            <span class="event-row-name">{{ event.name }}</span>
+                            <span class="event-row-meta text-muted">{{ n_rallies }} {{ 'rally' if n_rallies == 1 else 'rallies' }} &middot; {{ event.car_class }}{% if event.max_entrants and event.max_entrants > 0 %} &middot; Max {{ event.max_entrants }}{% endif %}</span>
+                            <span class="event-row-countdown mono">{{ event.end_time | countdown }}</span>
+                        </a>
+                        {% if is_owner %}
+                        <form method="post" action="/events/{{ event.id }}/delete"
+                              onsubmit="return confirm('Delete championship \"{{ event.name }}\"? This cannot be undone.')"
+                              style="margin:0; flex-shrink:0;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn btn-ghost btn-sm" title="Delete event"
+                                    style="color:var(--red, #EF4444); padding:2px 8px; font-size:.8rem;">&times;</button>
+                        </form>
+                        {% endif %}
+                    </div>
                     {% endfor %}
                 </div>
                 {% else %}

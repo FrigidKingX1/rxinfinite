@@ -2387,6 +2387,40 @@ def leave_club(club_id: str) -> Response:
     return redirect(url_for('club_detail', club_id=club_id))
 
 
+@app.route('/clubs/<club_id>/delete', methods=['POST'])
+@verified_required
+def delete_club(club_id: str) -> Response:
+    """Delete a club and clean up all references. Only the owner can do this."""
+    user = current_user()
+    assert user is not None
+    path = _club_path(club_id)
+    if not os.path.exists(path):
+        abort(404)
+    club = get_club(club_id)
+    if not user_is_owner(club, user['username']):
+        abort(403)
+    club_name = club.get('name', 'Unnamed')
+    members = club.get('members') or []
+    for username in members:
+        with _atomic_update(_user_path(username)) as u:
+            if club_id in (u.get('clubs') or []):
+                u['clubs'].remove(club_id)
+    events = get_all_events()
+    for evt in events:
+        if evt.get('club_id') == club_id:
+            ep = os.path.join(EVENTS_DIR, f"{evt['id']}.json")
+            if os.path.exists(ep):
+                os.remove(ep)
+            results = get_results(evt['id'])
+            if results:
+                rp = os.path.join(RESULTS_DIR, f"{evt['id']}.json")
+                if os.path.exists(rp):
+                    os.remove(rp)
+    os.remove(path)
+    flash(f'Club "{club_name}" and its events have been deleted.', 'info')
+    return redirect(url_for('clubs'))
+
+
 # ── Club invites (direct + shareable link) ──────────────
 
 @app.route('/clubs/<club_id>/invite', methods=['POST'])
@@ -3143,6 +3177,30 @@ def event_detail(event_id: str) -> str:
     rallies = _championship_view(event)
     return render_template('event_detail.html', event=event, entries=entries,
                            club=club, rallies=rallies)
+
+
+@app.route('/events/<event_id>/delete', methods=['POST'])
+@verified_required
+def delete_event(event_id: str) -> Response:
+    """Delete a published event/championship. Only the club owner can do this."""
+    user = current_user()
+    assert user is not None
+    event = get_event(event_id)
+    if not event:
+        abort(404)
+    club = get_club(event.get('club_id', ''))
+    if not club or not user_is_owner(club, user['username']):
+        abort(403)
+    ep = os.path.join(EVENTS_DIR, f"{event_id}.json")
+    if os.path.exists(ep):
+        os.remove(ep)
+    results = get_results(event_id)
+    if results:
+        rp = os.path.join(RESULTS_DIR, f"{event_id}.json")
+        if os.path.exists(rp):
+            os.remove(rp)
+    flash(f'Championship "{event.get("name", "Unnamed")}" deleted.', 'info')
+    return redirect(url_for('club_detail', club_id=club['id']))
 
 
 @app.route('/events/<event_id>/rally/<int:rally_index>')
