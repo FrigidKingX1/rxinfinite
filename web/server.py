@@ -1027,6 +1027,7 @@ def normalize_championship(raw: dict[str, Any]) -> dict[str, Any]:
             'location': champ.get('location', ''),
             'car_class': champ.get('car_class', ''),
             'surface': champ.get('surface', 'Gravel'),
+            'tyre_compound': champ.get('tyre_compound', ''),
             'duration': _duration_for_type(champ.get('type', 'weekly')),
             'stages': champ.get('stages', []),
         }]
@@ -2103,6 +2104,7 @@ def club_detail(club_id: str) -> str:
         visibility=club_visibility(club),
         join_policy=club_join_policy(club),
         site_url=SITE_URL,
+        tyre_compounds=TYRE_COMPOUNDS,
     )
 
 
@@ -2767,6 +2769,8 @@ def create_club_event(club_id: str) -> Response:
         for sname, dist in STAGES[location][:num_stages]
     ]
 
+    tyre_compound = request.form.get('tyre_compound', '').strip()
+
     event = {
         'id': f'evt-{uuid.uuid4().hex[:8]}',
         'name': name,
@@ -2774,6 +2778,7 @@ def create_club_event(club_id: str) -> Response:
         'location': location,
         'car_class': car_class,
         'surface': surface,
+        'tyre_compound': tyre_compound,
         'conditions': cond,
         'stages': stage_list,
         'start_time': now.isoformat(),
