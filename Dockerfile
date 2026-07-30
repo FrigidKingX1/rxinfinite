@@ -10,7 +10,6 @@ COPY web/ web/
 
 WORKDIR /app/web
 
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
+EXPOSE 8080
 
-CMD ./entrypoint.sh
+CMD gunicorn server:app --bind 0.0.0.0:8080 --workers 2
