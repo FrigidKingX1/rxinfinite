@@ -68,11 +68,9 @@
                 <h2 class="card-title"><span class="accent">//</span> Game Server Token</h2>
             </div>
             <div class="card-body">
-                {% if new_token %}
-                <p style="margin-bottom:.75rem; color: var(--green); font-weight: 700;">Token generated! Copy it now &mdash; it won't be shown again.</p>
-                <div style="background:var(--bg-deep); border:1px solid var(--border); border-radius:var(--radius); padding:.75rem 1rem; font-family:var(--font-mono); font-size:.85rem; color:var(--accent-bright); word-break:break-all; margin-bottom:1rem;">{{ new_token }}</div>
-                {% elif has_token %}
-                <p style="margin-bottom:.5rem;">Your token: <code style="color:var(--accent-bright)">{{ token_masked }}</code></p>
+                {% if has_token %}
+                <p style="margin-bottom:.75rem; color: var(--green); font-weight: 700;">Your game token:</p>
+                <div style="background:var(--bg-deep); border:1px solid var(--border); border-radius:var(--radius); padding:.75rem 1rem; font-family:var(--font-mono); font-size:.85rem; color:var(--accent-bright); word-break:break-all; margin-bottom:1rem;">{{ token_masked }}</div>
                 {% endif %}
 
                 {% if has_token %}

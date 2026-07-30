@@ -1709,12 +1709,11 @@ def dashboard() -> str:
 
     new_token = session.pop('new_game_token', None)
     game_token = user.get('game_token', '')
-    token_masked = f'df_****...{game_token[-8:]}' if game_token else ''
 
     return render_template(
         'dashboard.html', user=user, my_clubs=my_clubs,
         active_events=active, my_results=my_results[:10],
-        new_token=new_token, token_masked=token_masked,
+        new_token=new_token, token_masked=game_token,
         has_token=bool(game_token),
     )
 
