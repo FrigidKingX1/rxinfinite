@@ -666,7 +666,8 @@ class RpcDispatcher:
         except (ValueError, AttributeError):
             is_rallycross = False
         # Clubs UI only supports rally discipline; for RX circuits on rally
-        # stages we keep discipline_id=1 and mark the stages as circuit format.
+        # stages we keep discipline_id=1 and mark the stages as circuit format
+        # with enough opponents so the game doesn't crash on a 0-entrant race.
         stages = self._stages_for_subevent(ev, chal_id, ei, track_ids)
         if is_rallycross:
             for s in stages:
@@ -677,6 +678,7 @@ class RpcDispatcher:
             location_id=location_id,
             discipline_id=1,
             stages=stages,
+            number_entrants=8 if is_rallycross else 0,
             leaderboard_id=chal_id + 900000 + ei * 10_000_000,
         )
 
