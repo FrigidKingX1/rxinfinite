@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = []
 
 [tool.setuptools]
-packages = ["dr2server"]
+packages = []
 
 [build-system]
 requires = ["setuptools>=68"]
