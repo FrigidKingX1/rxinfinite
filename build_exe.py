@@ -183,6 +183,12 @@ def build() -> None:
     else:
         print(f"[build] No icon found at {icon_path} — skipping --icon.")
 
+    # Windows version info (metadata like FileDescription, CompanyName)
+    version_info_path = ROOT / "version_info.txt"
+    if IS_WIN and version_info_path.exists():
+        cmd += ["--version-file", str(version_info_path)]
+        print(f"[build] Embedding version info from {version_info_path}")
+
     # Entry point
     cmd.append(str(ROOT / "rxinfinite.py"))
 
