@@ -200,7 +200,7 @@
                     <a href="/events/{{ event.id }}" class="event-row">
                         <span class="event-badge badge-{{ event.type }}">{{ event.type[:1] | upper }}</span>
                         <span class="event-row-name">{{ event.name }}</span>
-                        <span class="event-row-meta text-muted">{{ n_rallies }} {{ 'rally' if n_rallies == 1 else 'rallies' }} &middot; {{ event.car_class }}</span>
+                        <span class="event-row-meta text-muted">{{ n_rallies }} {{ 'rally' if n_rallies == 1 else 'rallies' }} &middot; {{ event.car_class }}{% if event.max_entrants and event.max_entrants > 0 %} &middot; Max {{ event.max_entrants }}{% endif %}</span>
                         <span class="event-row-countdown mono">{{ event.end_time | countdown }}</span>
                     </a>
                     {% endfor %}

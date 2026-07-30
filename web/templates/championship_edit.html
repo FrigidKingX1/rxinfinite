@@ -157,6 +157,11 @@
                     <input type="text" id="champ_name" name="name" class="form-input" maxlength="60"
                            value="{{ draft.name or '' }}" placeholder="e.g. Nordic Winter Series">
                 </div>
+                <div class="form-group">
+                    <label for="champ_desc" class="form-label">Description <span class="text-muted">(optional)</span></label>
+                    <textarea id="champ_desc" name="description" class="form-input form-textarea" rows="3" maxlength="500"
+                              placeholder="Brief description shown to players before they enter...">{{ draft.description or '' }}</textarea>
+                </div>
             </div>
         </div>
 

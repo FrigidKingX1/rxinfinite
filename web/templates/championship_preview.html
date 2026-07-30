@@ -28,11 +28,22 @@
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="name" value="{{ draft.name or '' }}">
 
+                {% if draft.description %}
+                <p class="champ-description">{{ draft.description }}</p>
+                <input type="hidden" name="description" value="{{ draft.description }}">
+                {% endif %}
+
                 <div class="form-group">
                     <label for="start_at" class="form-label">Set Start Date and Time</label>
                     <input type="datetime-local" id="start_at" name="start_at" class="form-input"
                            min="{{ now_iso }}" value="{{ draft.start_at or now_iso }}"
                            data-total-seconds="{{ total_seconds }}">
+                </div>
+
+                <div class="form-group">
+                    <label for="max_entrants" class="form-label">Max Entrants <span class="text-muted">(0 = unlimited)</span></label>
+                    <input type="number" id="max_entrants" name="max_entrants" class="form-input"
+                           min="0" max="999" value="{{ draft.max_entrants or 0 }}" style="max-width:120px">
                 </div>
 
                 <div class="lb-table-wrap">
@@ -50,6 +61,10 @@
                 </div>
                 {% if end_display %}
                 <p class="champ-ends-on">Championship ends on <strong id="endsOn">{{ end_display }}</strong></p>
+                {% endif %}
+
+                {% if draft.max_entrants and draft.max_entrants > 0 %}
+                <p class="champ-ends-on">Max entrants: <strong>{{ draft.max_entrants }}</strong></p>
                 {% endif %}
 
                 <h3 class="champ-adv-title"><span class="accent">+</span> Advanced Settings</h3>

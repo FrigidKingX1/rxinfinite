@@ -1240,7 +1240,11 @@ def parse_championship_form(form: Any) -> dict[str, Any]:
             },
             'stages': stages_out or [_blank_stage()],
         })
-    return {'name': (form.get('name') or '').strip(), 'events': out_events}
+    return {
+        'name': (form.get('name') or '').strip(),
+        'description': (form.get('description') or '').strip(),
+        'events': out_events,
+    }
 
 
 def _seed_users() -> list[dict[str, Any]]:
@@ -2798,6 +2802,7 @@ def championship_generate(club_id: str) -> Response:
         'owner': user['username'],
         'created_at': datetime.now().isoformat(),
         'name': '',
+        'description': '',
         'start_at': '',
         'settings': dict(DEFAULT_CHAMP_SETTINGS),
         'events': _random_championship_events(num_events, num_stages),
@@ -2824,6 +2829,7 @@ def championship_action(club_id: str, draft_id: str) -> Response:
     # Always persist the whole editor form first so nothing is lost on a bounce.
     parsed = parse_championship_form(request.form)
     draft['name'] = parsed['name']
+    draft['description'] = parsed.get('description', '')
     draft['events'] = parsed['events'] or [_blank_event()]
 
     action = request.form.get('action', 'save')
@@ -3026,7 +3032,9 @@ def championship_submit(club_id: str, draft_id: str) -> Response:
     draft = _require_draft(club_id, draft_id, user)
 
     name = (request.form.get('name') or draft.get('name') or '').strip()
+    description = (request.form.get('description') or draft.get('description') or '').strip()
     start_at = (request.form.get('start_at') or '').strip()
+    max_entrants = _to_int_or_zero(request.form.get('max_entrants'))
     settings = {
         'hardcore_damage': request.form.get('adv_hardcore_damage') == '1',
         'unexpected_moments': request.form.get('adv_unexpected_moments') == '1',
@@ -3080,12 +3088,14 @@ def championship_submit(club_id: str, draft_id: str) -> Response:
         'id': f'evt-{uuid.uuid4().hex[:8]}',
         'schema_version': 2,
         'name': name,
+        'description': description,
         'type': bucket_for_duration(total),
         'club_id': club_id,
         'start_time': start_dt.isoformat(),
         'end_time': end_dt.isoformat(),
         'active': True,
         'featured': False,
+        'max_entrants': max_entrants if max_entrants > 0 else 0,
         'settings': settings,
         # Top-level mirrors of events[0] so legacy readers/templates keep working.
         'location': first['location'],

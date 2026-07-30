@@ -14,9 +14,15 @@
                     {% endif %}
                 </div>
                 <h1 class="page-title">{{ event.name }}</h1>
+                {% if event.description %}
+                <p class="event-description">{{ event.description }}</p>
+                {% endif %}
                 <p class="page-subtitle text-muted">
                     {{ rallies | length }} {{ 'rally' if rallies | length == 1 else 'rallies' }}
                     &middot; {{ event.car_class }}
+                    {% if event.max_entrants and event.max_entrants > 0 %}
+                    &middot; Max {{ event.max_entrants }} entrants
+                    {% endif %}
                 </p>
             </div>
             <div class="page-header-right">
