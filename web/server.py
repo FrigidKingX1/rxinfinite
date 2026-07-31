@@ -3584,10 +3584,11 @@ def api_game_stage_complete() -> Response | tuple[Response, int]:
 
     existing['stages'][pos] = stage_entry
 
-    # Count a DNF/retired finish as a consumed attempt. race_status==0 ("UNKNOWN"
-    # in the game's enum) is what the client actually sends for a clean finish,
-    # per dispatcher.py's race_status==0 gate, so don't burn an attempt on that.
-    if stage_entry['race_status'] != 0:
+    # Count a DNF/retired finish as a consumed attempt. The live client sends
+    # race_status=5 for finished stages (2026-07-31 captures) and 0 was the
+    # legacy DirtForever assumption; both are clean finishes, so don't burn an
+    # attempt on them. Any other status is a DNF/retire and does burn one.
+    if stage_entry['race_status'] not in (0, 5):
         existing['attempts_used'] = existing.get('attempts_used', 0) + 1
 
     # Recalculate total from all stages that have a real time

@@ -155,6 +155,7 @@ class RpcDispatcher:
             "RaceNetInventory.GetStore": self._template_or_stub("RaceNetInventory.GetStore", self._store),
             "RaceNetInventory.GetRewards": self._rewards,
             "RaceNetChallenges.GetChallenges": self._template_or_stub("RaceNetChallenges.GetChallenges", self._challenges),
+            "RaceNetChallenges.GetChallengeRecap": self._challenge_recap,
             "RaceNetChallenges.GetStageSplits": self._stage_splits,
             "RaceNetChallenges.StageBegin": self._stage_begin,
             "RaceNetChallenges.StageComplete": self._stage_complete,
@@ -209,6 +210,8 @@ class RpcDispatcher:
 
     def _default_handler(self, method: str) -> Handler:
         def handler(params: Dict[str, Any]) -> Dict[str, Any]:
+            print(f"[DISPATCH] *** UNHANDLED RPC: {method} "
+                  f"params_keys={list(params.keys())} — served generic stub")
             return {
                 "ok": True,
                 "method": method,
@@ -1530,6 +1533,22 @@ class RpcDispatcher:
             else:
                 leader_ms = int(source[0].get("total_time_ms", 0) or 0)
 
+        egonet_entries = self._build_egonet_entries(source, use_partial, leader_ms)
+        player_rank = self._player_rank_in(egonet_entries)
+        return {
+            "ok": True,
+            "TotalEntries": len(egonet_entries),
+            "Entries": egonet_entries,
+            "PlayerRank": player_rank,
+        }
+
+    def _build_egonet_entries(
+        self,
+        source: List[Dict[str, Any]],
+        use_partial: bool = False,
+        leader_ms: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Convert web leaderboard entries to the EgoNet wire shape."""
         egonet_entries = []
         for i, e in enumerate(source):
             if use_partial:
@@ -1560,12 +1579,71 @@ class RpcDispatcher:
                 "GhostAvailable": False,
                 "LiveryId":       UInt32(0),
             })
-        player_rank = self._player_rank_in(egonet_entries)
+        return egonet_entries
+
+    def _challenge_recap(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle RaceNetChallenges.GetChallengeRecap.
+
+        The game calls this when the player finishes the final stage of a
+        challenge and presses Continue (captured 2026-07-31 crash session).
+        Previously unhandled, so the client got a generic error (X-EgoNet-Result
+        header = 1) and crashed shortly after. The exact upstream recap schema
+        has not been captured yet, so this returns a best-effort payload that
+        mirrors the leaderboard wire shape (verified) plus a finished Progress
+        block; extra keys are ignored by the client, so this is strictly safer
+        than the previous hard error.
+        """
+        def _extract(key: str, default: Any = 0) -> Any:
+            v = params.get(key, default)
+            return getattr(v, "value", v)
+
+        challenge_id = int(_extract("ChallengeId") or 0)
+        print(f"[RECAP] GetChallengeRecap challenge={challenge_id}")
+
+        event_id = self._resolve_event_id(challenge_id, "Recap")
+        entries: List[Dict[str, Any]] = []
+        event_stage_count = 0
+        if event_id:
+            if self.api_client is not None:
+                try:
+                    entries = self.api_client.get_leaderboard(event_id)
+                except Exception as exc:
+                    print(f"[RECAP] get_leaderboard raised: {exc}")
+            event_stage_count = self._total_stages_for_event(event_id)
+
+        my_uname = self._resolve_my_username()
+        my_total_ms = 0
+        for e in entries:
+            if e.get("username") == my_uname:
+                my_total_ms = int(e.get("total_time_ms", 0) or 0)
+
+        egonet_entries = self._build_egonet_entries(entries)
+        progress = self._build_progress_dict(
+            challenge_id=challenge_id,
+            target_stage_index=max(event_stage_count - 1, 0),
+            state=2,  # event finished
+            vehicle_id=self._current_vehicle_id or 0,
+            livery_id=0,
+            meters_driven=0,
+            champ_time_ms=my_total_ms,
+            has_repaired=False,
+            repair_penalty_ms=0,
+            vehicle_damage=self._damage_from_dict({}),
+            tyre_compound=7,
+            tyres_remaining=2,
+            tuning_bytes=self._decode_tuning_b64(""),
+            attempts_left=0,
+        )
         return {
             "ok": True,
-            "TotalEntries": len(egonet_entries),
-            "Entries": egonet_entries,
-            "PlayerRank": player_rank,
+            "ChallengeId": challenge_id,
+            "Progress": progress,
+            "EventResults": egonet_entries,
+            "TotalResults": egonet_entries,
+            "EventReward": self._zero_reward(),
+            "ChampReward": self._zero_reward(),
+            "IsChampionshipComplete": True,
+            "ResultCode": 0,
         }
 
     def _time_trial_id(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -2056,9 +2134,17 @@ class RpcDispatcher:
         time_ms = int(req.stage_time * 1000)
 
         # Persist if we have a target event AND the stage was finished cleanly.
-        # DNF/restart submissions (race_status != 0) are skipped for the
-        # leaderboard, but we still build a Progress response below.
-        if event_id and self.api_client is not None and req.race_status == 0:
+        # Captures from the live client show finished stages arrive with
+        # race_status=5 (RaceStatus.RETIRED — the game sends it for every
+        # club-challenge stage completion, 2026-07-31 captures); 0 is the
+        # legacy DirtForever assumption and is kept for safety. Other statuses
+        # (DNF/restart) are skipped for the leaderboard, but we still build a
+        # Progress response below. A sub-2s run with zero meters is an abort
+        # (e.g. the 0.98s/0m capture right before the crash) — don't persist
+        # that as a leaderboard time, but still count the stage as consumed.
+        is_finished = req.race_status in (0, 5)
+        is_abort = time_ms < 2000 and req.meters_driven <= 0
+        if event_id and self.api_client is not None and is_finished and not is_abort:
             try:
                 self.api_client.submit_stage(
                     event_id=event_id,
@@ -2083,7 +2169,9 @@ class RpcDispatcher:
                       f"stage={req.stage_index} time_ms={time_ms}")
             except Exception as exc:
                 print(f"[STAGE] api_client.submit_stage() raised: {exc}")
-        elif req.race_status != 0:
+        elif is_abort:
+            print(f"[STAGE] Not submitting (abort: time={time_ms}ms meters={req.meters_driven})")
+        elif not is_finished:
             print(f"[STAGE] Not submitting (race_status={req.race_status}, not finished)")
         elif not event_id:
             print(f"[STAGE] Cannot submit — no event_id available")
@@ -2121,7 +2209,7 @@ class RpcDispatcher:
         if req.challenge_id in self._challenge_subevent_map:
             # Per-event challenge: this event's stages complete in order, so the
             # local (0-based) index reaching the event's count means it's done.
-            completed_in_event = (req.stage_index + 1) if req.race_status == 0 else req.stage_index
+            completed_in_event = (req.stage_index + 1) if req.race_status in (0, 5) else req.stage_index
             all_done = event_stage_count > 0 and completed_in_event >= event_stage_count
         else:
             all_done = event_stage_count > 0 and len(completed_stages) >= event_stage_count
@@ -2138,7 +2226,7 @@ class RpcDispatcher:
             champ_time_ms = int(ep.get("total_time_ms", 0) or 0)
         else:
             champ_time_ms = sum(int(s.get("time_ms", 0) or 0) for s in completed_stages)
-            if req.race_status == 0:
+            if req.race_status in (0, 5):
                 champ_time_ms += time_ms
 
         progress = self._build_progress_dict(
