@@ -748,7 +748,6 @@ SURFACE_DEG_OPTIONS: list[str] = [label for label, _ in SURFACE_DEGRAD_LEVELS]
 SERVICE_AREA_OPTIONS: list[str] = [label for label, _has, _sid in SERVICE_AREA_LEVELS]
 
 CAR_CLASSES = {
-    # Rallycross (RXInfinite focus)
     'RX Supercars': [
         'Volkswagen Polo R Supercar', 'Audi S1 EKS RX Quattro',
         'Peugeot 208 WRX', 'Renault Megane RS RX',
@@ -774,50 +773,6 @@ CAR_CLASSES = {
     ],
     'Cross Kart': [
         'Speedcar Xtrem',
-    ],
-    # Rally
-    'R5': [
-        'Ford Fiesta R5', 'Volkswagen Polo GTI R5',
-        'Citroen C3 R5', 'Skoda Fabia R5',
-        'Peugeot 208 T16 R5',
-    ],
-    'Group B (4WD)': [
-        'Audi Sport quattro S1 E2', 'Peugeot 205 T16 Evo 2',
-        'Lancia Delta S4', 'Ford RS200', 'MG Metro 6R4',
-    ],
-    'Group A': [
-        'Subaru Impreza 1995', 'Mitsubishi Lancer Evo VI',
-        'Ford Escort RS Cosworth', 'Subaru Legacy RS',
-    ],
-    'H3 (RWD)': [
-        'BMW E30 M3 Evo Rally', 'Opel Ascona 400', 'Lancia Stratos',
-        'Datsun 240Z', 'Renault 5 Turbo', 'Ford Sierra Cosworth RS500',
-    ],
-    'NR4/R4': [
-        'Subaru WRX STI NR4', 'Mitsubishi Lancer Evo X',
-    ],
-    'R2': [
-        'Ford Fiesta R2', 'Opel Adam R2', 'Peugeot 208 R2',
-    ],
-    'H2 (RWD)': [
-        'Porsche 911 SC RS', 'Fiat 131 Abarth Rally', 'Opel Kadett C GT/E',
-    ],
-    'H2 (FWD)': [
-        'Volkswagen Golf GTI 16V', 'Peugeot 205 GTI',
-    ],
-    'H1 (FWD)': [
-        'Mini Cooper S', 'DS Automobiles DS 21', 'Lancia Fulvia HF',
-    ],
-    'F2 Kit Car': [
-        'Peugeot 306 Maxi', 'Seat Ibiza Kit Car', 'Volkswagen Golf Kitcar',
-    ],
-    'Rally GT': [
-        'Porsche 911 RGT Rally Spec', 'BMW M2 Competition',
-        'Chevrolet Camaro GT4.R', 'Aston Martin V8 Vantage GT4',
-    ],
-    '2000cc': [
-        'Citroen C4 Rally', 'Skoda Fabia Rally',
-        'Ford Focus RS Rally 2007', 'Subaru Impreza 2008',
     ],
 }
 
@@ -1354,7 +1309,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Argentina Sprint',
             'type': 'daily',
             'location': 'Argentina',
-            'car_class': 'Group A',
+            'car_class': 'RX Supercars',
             'surface': 'Gravel',
             'conditions': 'Clear',
             'stage_indices': [0, 2, 4],
@@ -1368,7 +1323,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Finland Night Rally',
             'type': 'daily',
             'location': 'Finland',
-            'car_class': 'R5',
+            'car_class': 'RX Supercars 2019',
             'surface': 'Gravel',
             'conditions': 'Night',
             'stage_indices': [3, 4],
@@ -1382,7 +1337,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Wales Classic',
             'type': 'weekly',
             'location': 'Wales',
-            'car_class': 'Group B (4WD)',
+            'car_class': 'Group B Rallycross',
             'surface': 'Gravel',
             'conditions': 'Overcast',
             'stage_indices': [0, 1, 2, 3],
@@ -1396,7 +1351,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Greece Gravel Grind',
             'type': 'weekly',
             'location': 'Greece',
-            'car_class': 'NR4/R4',
+            'car_class': 'RX Super 1600',
             'surface': 'Gravel',
             'conditions': 'Clear',
             'stage_indices': [0, 1, 4],
@@ -1410,7 +1365,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Monte Carlo Championship',
             'type': 'monthly',
             'location': 'Monte Carlo',
-            'car_class': 'R5',
+            'car_class': 'RX Supercars 2019',
             'surface': 'Tarmac',
             'conditions': 'Light Rain',
             'stage_indices': [0, 1, 2, 3, 4, 5],
@@ -1424,7 +1379,7 @@ def _seed_events_and_results(users: list[dict[str, Any]]) -> None:
             'name': 'Australia Endurance',
             'type': 'monthly',
             'location': 'Australia',
-            'car_class': 'Group A',
+            'car_class': 'RX2',
             'surface': 'Gravel',
             'conditions': 'Dusk',
             'stage_indices': [0, 1, 2, 3, 4],
