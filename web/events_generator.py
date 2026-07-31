@@ -34,6 +34,7 @@ from server import (
     VERIFIED_STAGE_COUNTS,
     DEFAULT_CHAMP_SETTINGS,
     _duration_for_type,
+    _RX_LOCATION_NAMES,
 )
 
 VARIANTS = 3                 # mirrors DR2 Standard / Bonus / D+
@@ -134,7 +135,8 @@ def generate_event(
     # Use only non-rallycross locations
     loc_pool = sorted(
         l for l in STAGES
-        if l not in used_locations
+        if l not in _RX_LOCATION_NAMES
+        and l not in used_locations
         and VERIFIED_STAGE_COUNTS.get(l, 0) > 0
     )
     cls_pool = sorted(

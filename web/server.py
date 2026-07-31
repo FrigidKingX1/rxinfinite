@@ -708,6 +708,11 @@ STAGES: dict[str, list[tuple[str, float]]] = {
     if any(t.location is loc for t in Track)
 }
 
+# rallycross location names to exclude from UI
+_RX_LOCATION_NAMES: frozenset[str] = frozenset(
+    loc.display_name for loc in Location if loc.discipline == 'rallycross'
+)
+
 # Number of *verified* track routes the game can actually deliver per location.
 # 0 means no in-game routes are confirmed yet (e.g. rallycross circuits, Monte
 # Carlo); such events won't appear in-game until their routes are verified.
@@ -1153,7 +1158,7 @@ def _random_championship_events(num_events: int, num_stages: int) -> list[dict[s
     service-area pattern.
     """
     rng = random.Random()
-    loc_pool = [l for l in STAGES if VERIFIED_STAGE_COUNTS.get(l, 0) > 0]
+    loc_pool = [l for l in STAGES if l not in _RX_LOCATION_NAMES and VERIFIED_STAGE_COUNTS.get(l, 0) > 0]
     class_pool = [
         c for c in CAR_CLASSES
         if (vehicle_class_id_for_label(c) or 0) in CONFIRMED_VEHICLE_CLASS_IDS
@@ -2085,7 +2090,7 @@ def club_detail(club_id: str) -> str:
             invite_links.append(link)
     return render_template(
         'club_detail.html', club=club, members=members, events=events,
-        rally_locs=sorted(loc for loc in STAGES),
+        rally_locs=sorted(loc for loc in STAGES if loc not in _RX_LOCATION_NAMES),
         stages=STAGES, car_classes=CAR_CLASSES, conditions=CONDITIONS,
         stage_caps=STAGE_CAPS,
         active_event_exists=active_event_exists,
@@ -2812,7 +2817,7 @@ def _require_draft(club_id: str, draft_id: str, user: dict[str, Any]) -> dict[st
 def _championship_edit_context(club: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
     return dict(
         club=club, draft=draft,
-        rally_locs=sorted(loc for loc in STAGES),
+        rally_locs=sorted(loc for loc in STAGES if loc not in _RX_LOCATION_NAMES),
         car_classes=list(CAR_CLASSES.keys()),
         condition_options=STAGE_CONDITIONS_OPTIONS,
         surface_options=SURFACE_OPTIONS,
