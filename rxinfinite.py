@@ -1388,6 +1388,7 @@ def run_gui():
                 data_root=Path(args.data_dir),
                 capture_root=Path(args.capture_dir),
                 api_url=args.api_url,
+                log_callback=lambda m: root.after(0, lambda msg=m: log(msg)),
             )
             if api_client:
                 app.dispatcher.api_client = api_client

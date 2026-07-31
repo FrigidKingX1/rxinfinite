@@ -29,7 +29,6 @@ from server import (
     STAGES,
     STAGE_ROUTES,
     CAR_CLASSES,
-    RX_CAR_CLASSES,
     CONDITIONS,
     LOCATION_SURFACE,
     VERIFIED_STAGE_COUNTS,
@@ -126,33 +125,19 @@ def generate_event(
     used_locations: set[str],
     used_classes: set[str],
 ) -> dict[str, Any]:
-    """Deterministically roll an RX-focused event dict for ``slot_id``.
+    """Deterministically roll an event dict for ``slot_id``.
 
-    Picks from rallycross locations and RX car classes so the auto-generated
-    events always feature rallycross content. Falls back to rally locations
-    if RX locations are exhausted for a given period.
+    Picks from all available locations and car classes.
     """
     rng = _rng_for(slot_id)
 
-    # RX_LOCATIONS is defined in server.py as a frozenset of rallycross
-    # location display names.  Filter to locations with verified track routes.
-    from server import RX_LOCATIONS
-    rx_pool = sorted(
+    # Use only non-rallycross locations
+    loc_pool = sorted(
         l for l in STAGES
-        if l in RX_LOCATIONS and l not in used_locations
+        if l not in used_locations
         and VERIFIED_STAGE_COUNTS.get(l, 0) > 0
     )
-    # Fallback to non-RX locations if RX pool is exhausted
-    fallback_pool = sorted(
-        l for l in STAGES
-        if l not in RX_LOCATIONS and l not in used_locations
-        and VERIFIED_STAGE_COUNTS.get(l, 0) > 0
-    )
-    loc_pool = rx_pool or fallback_pool
     cls_pool = sorted(
-        c for c in RX_CAR_CLASSES
-        if c not in used_classes
-    ) or sorted(
         c for c in CAR_CLASSES if c not in used_classes
     )
     location = rng.choice(loc_pool)
@@ -166,9 +151,7 @@ def generate_event(
     # route set; daily/weekly shorter (for rallycross, just 1 stage).
     verified_routes = STAGE_ROUTES.get(location, [])  # [(track_id, name, km), ...]
     verified_cap = VERIFIED_STAGE_COUNTS.get(location, len(verified_routes))
-    if location in RX_LOCATIONS:
-        k = min(1, verified_cap)
-    elif event_type == 'monthly':
+    if event_type == 'monthly':
         k = verified_cap
     else:
         k = min(STAGES_PER_TYPE[event_type], verified_cap)

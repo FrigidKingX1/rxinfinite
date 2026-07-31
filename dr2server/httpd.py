@@ -83,14 +83,16 @@ class App:
         proxy_methods: Optional[Set[str]] = None,
         api_url: Optional[str] = None,
         api_token: Optional[str] = None,
+        log_callback: Optional[Any] = None,
     ) -> None:
+        self.log_callback = log_callback or print
         self.account_store = AccountStore(data_root / "accounts")
         api_client: Optional[RXInfiniteClient] = None
         if api_url:
             if not api_url.startswith("http://") and not api_url.startswith("https://"):
                 api_url = "https://" + api_url
             api_client = RXInfiniteClient(base_url=api_url, api_token=api_token)
-            print(f"[API] Connected to rxinfinite API at {api_url}")
+            self.log_callback(f"[API] Connected to rxinfinite API at {api_url}")
         self.dispatcher = RpcDispatcher(self.account_store, api_client=api_client)
         self.capture_root = capture_root
         self.capture_root.mkdir(parents=True, exist_ok=True)
@@ -257,7 +259,7 @@ class RequestHandler(BaseHTTPRequestHandler):
 
     def _handle_egonet_rpc(self, method: str, payload: Dict[str, Any], capture_path: Path) -> None:
         is_proxied = self.app.upstream_ip and method in self.app.proxy_methods
-        print(f"[RPC] {method}{'  [PROXY]' if is_proxied else ''}")
+        self.app.log_callback(f"[RPC] {method}{'  [PROXY]' if is_proxied else ''}")
 
         # Check if this method should be proxied upstream
         if is_proxied:
