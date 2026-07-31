@@ -2038,6 +2038,14 @@ class RpcDispatcher:
         # Flat championship-wide stage ordinal; == stage_index for event 0.
         gidx = req.stage_index + (self._stage_offset(event_id, sub_index) if event_id else 0)
 
+        # Track the current event/vehicle (mirrors upstream). The streaming
+        # overlay and GetChallengeRecap rely on these; without them they stay
+        # None for the whole session.
+        if event_id:
+            self._current_event_id = event_id
+        if req.vehicle_id:
+            self._current_vehicle_id = req.vehicle_id
+
         # Look up the event config for tyre_compound override
         tyre_override: Optional[str] = None
         if event_id and self._clubs_snapshot:
@@ -2134,15 +2142,16 @@ class RpcDispatcher:
         time_ms = int(req.stage_time * 1000)
 
         # Persist if we have a target event AND the stage was finished cleanly.
-        # Captures from the live client show finished stages arrive with
-        # race_status=5 (RaceStatus.RETIRED — the game sends it for every
-        # club-challenge stage completion, 2026-07-31 captures); 0 is the
-        # legacy DirtForever assumption and is kept for safety. Other statuses
-        # (DNF/restart) are skipped for the leaderboard, but we still build a
-        # Progress response below. A sub-2s run with zero meters is an abort
-        # (e.g. the 0.98s/0m capture right before the crash) — don't persist
-        # that as a leaderboard time, but still count the stage as consumed.
-        is_finished = req.race_status in (0, 5)
+        # Every captured club-challenge StageComplete (2026-07-31) carries
+        # race_status=5 (RaceStatus.RETIRED), including legitimate 20-80s
+        # finishes — so accept it. 0 (UNKNOWN) is the legacy DirtForever
+        # assumption and 1 is RaceStatus.FINISHED per the game enum; both are
+        # kept for safety. Other statuses (DNF/restart) are skipped for the
+        # leaderboard, but we still build a Progress response below. A sub-2s
+        # run with zero meters is an abort (e.g. the 0.98s/0m capture right
+        # before the crash) — don't persist that as a leaderboard time, but
+        # still count the stage as consumed.
+        is_finished = req.race_status in (0, 1, 5)
         is_abort = time_ms < 2000 and req.meters_driven <= 0
         if event_id and self.api_client is not None and is_finished and not is_abort:
             try:
@@ -2185,17 +2194,21 @@ class RpcDispatcher:
         #     if persisted)
         ep = self._user_progress_for_event(event_id) if event_id else None
         completed_stages = (ep or {}).get("completed_stages", []) if ep else []
-        # Judge completion from the REQUEST's stage index, never from web
+        # The event is done once the reported stage is its LAST stage —
+        # regardless of race_status. A finished final stage obviously ends the
+        # event, but so does a DNF/abort on it: the game has no further stage
+        # to advance to, and telling it "continue to stage N+1" for an event
+        # with no such stage crashes the game setting up the nonexistent stage
+        # (both crash dumps, binary offset 0x27d447, game_status=55).
+        # This is judged purely from the REQUEST's stage index, never from web
         # persistence state: the client reports the last stage it ran and
         # advances its own flow immediately, but our API persistence lags
         # behind (or the stage was an abort we skipped persisting), so the
-        # previous persistence-based check left the event marked unfinished
-        # and told the game "continue to stage N+1" for an event with no such
-        # stage — the game then crashed setting up the nonexistent stage
-        # (both crash dumps, binary offset 0x27d447, game_status=55).
+        # persistence-based check left the event marked unfinished.
         # Multi-event championships serve one event per challenge, so judge
         # against THIS event's own stage count only — the championship-wide
-        # total would point past the served challenge's stages.
+        # total would point past the served challenge's stages. stage_index is
+        # 0-based within the challenge, so the last stage index is count-1.
         if req.challenge_id in self._challenge_subevent_map:
             _layout = self._champ_layout(event_id) if event_id else []
             event_stage_count = _layout[sub_index] if 0 <= sub_index < len(_layout) else 0
@@ -2213,15 +2226,11 @@ class RpcDispatcher:
         tyre_compound = int(latest.get("tyre_compound", 0) or 7)
         tyres_remaining = int(latest.get("tyres_remaining", 0) or 2)
 
-        if req.challenge_id in self._challenge_subevent_map:
-            # Per-event challenge: this event's stages complete in order, so the
-            # local (0-based) index reaching the event's count means it's done.
-            completed_in_event = (req.stage_index + 1) if is_finished else req.stage_index
-            all_done = event_stage_count > 0 and completed_in_event >= event_stage_count
-        else:
-            all_done = (event_stage_count > 0
-                        and (req.stage_index + 1 if is_finished else req.stage_index)
-                        >= event_stage_count)
+        # Completion is purely index-based: reaching the event's last stage
+        # index (count-1) means the event is done. Works for single-event and
+        # per-sub-event challenges alike, since stage_index restarts at 0 for
+        # each challenge.
+        all_done = event_stage_count > 0 and req.stage_index >= event_stage_count - 1
         if all_done:
             target_stage_index = event_stage_count - 1
             state_out = 2  # event finished
@@ -2235,7 +2244,7 @@ class RpcDispatcher:
             champ_time_ms = int(ep.get("total_time_ms", 0) or 0)
         else:
             champ_time_ms = sum(int(s.get("time_ms", 0) or 0) for s in completed_stages)
-            if req.race_status in (0, 5):
+            if is_finished:
                 champ_time_ms += time_ms
 
         progress = self._build_progress_dict(
