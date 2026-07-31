@@ -714,8 +714,7 @@ _RX_LOCATION_NAMES: frozenset[str] = frozenset(
 )
 
 # Number of *verified* track routes the game can actually deliver per location.
-# 0 means no in-game routes are confirmed yet (e.g. rallycross circuits, Monte
-# Carlo); such events won't appear in-game until their routes are verified.
+# 0 means no in-game routes are confirmed yet; such locations are excluded.
 VERIFIED_STAGE_COUNTS: dict[str, int] = {
     loc.display_name: len(get_tracks_for_location(int(loc)))
     for loc in Location
@@ -821,12 +820,6 @@ CAR_CLASSES = {
         'Ford Focus RS Rally 2007', 'Subaru Impreza 2008',
     ],
 }
-
-# RX-only car class names (lowercase keys) for the auto-events generator
-RX_CAR_CLASSES: list[str] = [
-    'RX Supercars', 'RX Supercars 2019', 'RX Super 1600',
-    'RX2', 'Group B Rallycross', 'Cross Kart',
-]
 
 # Tyre compound override options for events (empty = let game decide)
 TYRE_COMPOUNDS: list[tuple[str, str]] = [

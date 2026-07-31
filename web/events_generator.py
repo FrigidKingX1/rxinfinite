@@ -148,9 +148,8 @@ def generate_event(
     surface = LOCATION_SURFACE.get(location, 'Tarmac/Gravel')
 
     # Pick from the location's VERIFIED routes so the stage names match the
-    # routes the game actually loads.  Rallycross circuits only have 1 route
-    # (the circuit itself), so cap is always 1 for RX events.  Monthly = full
-    # route set; daily/weekly shorter (for rallycross, just 1 stage).
+    # routes the game actually loads.  Monthly uses all routes; daily/weekly
+    # use fewer.
     verified_routes = STAGE_ROUTES.get(location, [])  # [(track_id, name, km), ...]
     verified_cap = VERIFIED_STAGE_COUNTS.get(location, len(verified_routes))
     if event_type == 'monthly':

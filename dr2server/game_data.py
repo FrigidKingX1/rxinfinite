@@ -1498,11 +1498,4 @@ def get_vehicles_for_class(class_id: int) -> List[int]:
     return [int(v) for v in Vehicle if _VEHICLE_META[v]["vehicle_class"] == vc]
 
 
-def get_rally_locations() -> List[int]:
-    """Return all rally (non-rallycross) location IDs as ints."""
-    return [int(loc) for loc in Location if _LOCATION_META[loc]["discipline"] == "rally"]
 
-
-def get_rallycross_locations() -> List[int]:
-    """Return all rallycross location IDs as ints."""
-    return [int(loc) for loc in Location if _LOCATION_META[loc]["discipline"] == "rallycross"]
