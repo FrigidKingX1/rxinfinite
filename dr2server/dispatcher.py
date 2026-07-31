@@ -127,6 +127,7 @@ class RpcDispatcher:
         self._current_vehicle_id: Optional[int] = None
         self._clubs_snapshot: Optional[Dict[str, Any]] = None
         self._clubs_snapshot_ts: float = 0.0
+        self._cached_challenges: List[Dict] = []
         self._handlers: Dict[str, Handler] = {
             "Login.GetCurrentVersion": self._get_current_version,
             "Login.Login": self._login,
@@ -577,6 +578,8 @@ class RpcDispatcher:
             return None
 
         print(f"[CLUBS] Serving {len(clubs_egonet)} clubs, {len(challenges_egonet)} challenges")
+
+        self._cached_challenges = challenges_egonet
 
         progress_egonet = multi_progress + self._build_user_progress(
             [e for e in web_events if e.get("id") not in multi_event_ids]
@@ -1854,9 +1857,7 @@ class RpcDispatcher:
         # Real upstream returns just {"Rewards": []}
         return {"ok": True, "Rewards": []}
 
-    @staticmethod
-    def _challenges(params: Dict[str, Any]) -> Dict[str, Any]:
-        # Log the exact params so we can see what the game client requests
+    def _challenges(self, params: Dict[str, Any]) -> Dict[str, Any]:
         param_keys = list(params.keys())
         print(f"[CHALLENGES] Called with params keys={param_keys}")
         for k in param_keys:
@@ -1864,7 +1865,8 @@ class RpcDispatcher:
             if hasattr(v, 'value'):
                 v = v.value
             print(f"[CHALLENGES]   {k} = {v!r}")
-        return {"ok": True, "Challenges": []}
+        challenges = self._cached_challenges or []
+        return {"ok": True, "Challenges": challenges}
 
     def _resolve_event_id(self, challenge_id: int, label: str) -> Optional[str]:
         """Map a numeric challenge_id back to a web event_id.
