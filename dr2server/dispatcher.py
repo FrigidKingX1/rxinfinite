@@ -2185,10 +2185,17 @@ class RpcDispatcher:
         #     if persisted)
         ep = self._user_progress_for_event(event_id) if event_id else None
         completed_stages = (ep or {}).get("completed_stages", []) if ep else []
-        # Judge completion against THIS event's own stage count: a multi-event
-        # championship serves one event per challenge (each with its own stages),
-        # so the championship-wide total would tell the client to advance to a
-        # stage the served challenge doesn't have — which crashes the game.
+        # Judge completion from the REQUEST's stage index, never from web
+        # persistence state: the client reports the last stage it ran and
+        # advances its own flow immediately, but our API persistence lags
+        # behind (or the stage was an abort we skipped persisting), so the
+        # previous persistence-based check left the event marked unfinished
+        # and told the game "continue to stage N+1" for an event with no such
+        # stage — the game then crashed setting up the nonexistent stage
+        # (both crash dumps, binary offset 0x27d447, game_status=55).
+        # Multi-event championships serve one event per challenge, so judge
+        # against THIS event's own stage count only — the championship-wide
+        # total would point past the served challenge's stages.
         if req.challenge_id in self._challenge_subevent_map:
             _layout = self._champ_layout(event_id) if event_id else []
             event_stage_count = _layout[sub_index] if 0 <= sub_index < len(_layout) else 0
@@ -2209,10 +2216,12 @@ class RpcDispatcher:
         if req.challenge_id in self._challenge_subevent_map:
             # Per-event challenge: this event's stages complete in order, so the
             # local (0-based) index reaching the event's count means it's done.
-            completed_in_event = (req.stage_index + 1) if req.race_status in (0, 5) else req.stage_index
+            completed_in_event = (req.stage_index + 1) if is_finished else req.stage_index
             all_done = event_stage_count > 0 and completed_in_event >= event_stage_count
         else:
-            all_done = event_stage_count > 0 and len(completed_stages) >= event_stage_count
+            all_done = (event_stage_count > 0
+                        and (req.stage_index + 1 if is_finished else req.stage_index)
+                        >= event_stage_count)
         if all_done:
             target_stage_index = event_stage_count - 1
             state_out = 2  # event finished
