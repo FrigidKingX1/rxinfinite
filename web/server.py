@@ -708,10 +708,6 @@ STAGES: dict[str, list[tuple[str, float]]] = {
     if any(t.location is loc for t in Track)
 }
 
-RX_LOCATIONS: frozenset[str] = frozenset(
-    loc.display_name for loc in Location if loc.discipline == 'rallycross'
-)
-
 # Number of *verified* track routes the game can actually deliver per location.
 # 0 means no in-game routes are confirmed yet (e.g. rallycross circuits, Monte
 # Carlo); such events won't appear in-game until their routes are verified.
@@ -2089,8 +2085,7 @@ def club_detail(club_id: str) -> str:
             invite_links.append(link)
     return render_template(
         'club_detail.html', club=club, members=members, events=events,
-        rally_locs=sorted(loc for loc in STAGES if loc not in RX_LOCATIONS),
-        rx_locs=sorted(loc for loc in STAGES if loc in RX_LOCATIONS),
+        rally_locs=sorted(loc for loc in STAGES),
         stages=STAGES, car_classes=CAR_CLASSES, conditions=CONDITIONS,
         stage_caps=STAGE_CAPS,
         active_event_exists=active_event_exists,
@@ -2817,8 +2812,7 @@ def _require_draft(club_id: str, draft_id: str, user: dict[str, Any]) -> dict[st
 def _championship_edit_context(club: dict[str, Any], draft: dict[str, Any]) -> dict[str, Any]:
     return dict(
         club=club, draft=draft,
-        rally_locs=sorted(loc for loc in STAGES if loc not in RX_LOCATIONS),
-        rx_locs=sorted(loc for loc in STAGES if loc in RX_LOCATIONS),
+        rally_locs=sorted(loc for loc in STAGES),
         car_classes=list(CAR_CLASSES.keys()),
         condition_options=STAGE_CONDITIONS_OPTIONS,
         surface_options=SURFACE_OPTIONS,
