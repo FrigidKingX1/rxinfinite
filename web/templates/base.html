@@ -18,7 +18,10 @@
 
     <nav class="nav">
         <div class="nav-inner">
-            <a href="/" class="nav-logo">RX<span class="accent">INFINITE</span></a>
+            <a href="/" class="nav-logo" aria-label="RXInfinite home">
+                <span class="nav-mark">RX</span>
+                <span class="nav-word">INFINITE</span>
+            </a>
             <div class="nav-links">
                 <a href="/install" class="nav-link {% if request.path == '/install' %}active{% endif %}">Install</a>
                 <a href="/events" class="nav-link {% if request.path.startswith('/events') %}active{% endif %}">Events</a>

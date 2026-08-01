@@ -27,6 +27,7 @@
                     var eased = 1 - Math.pow(1 - progress, 3);
                     el.textContent = Math.round(eased * target);
                     if (progress < 1) requestAnimationFrame(step);
+                    else el.classList.add('count-done');
                 }
 
                 requestAnimationFrame(step);
@@ -72,6 +73,19 @@
                 links.classList.remove('open');
             }
         });
+    }
+
+    /* ── Nav drop-shadow once the page is scrolled ──── */
+
+    function setupNavScroll() {
+        var nav = document.querySelector('.nav');
+        if (!nav) return;
+        function onScroll() {
+            if (window.scrollY > 8) nav.classList.add('nav--scrolled');
+            else nav.classList.remove('nav--scrolled');
+        }
+        window.addEventListener('scroll', onScroll, { passive: true });
+        onScroll();
     }
 
     /* ── Auto-dismiss flash messages ────────────────── */
@@ -281,6 +295,7 @@
         animateCounters();
         createDust();
         setupNav();
+        setupNavScroll();
         setupFlash();
         setupDonate();
         setupEventForm();
